@@ -1,0 +1,13 @@
+[package]
+name = "accounting-mongodb"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+accounting-core = { version = "0.1.0", path = "../accounting-core" }
+async-trait = "0.1.68"
+bson = { version = "2.6.1", features = ["time-0_3"] }
+mongodb = "2.4.0"
+serde = "1.0.159"
