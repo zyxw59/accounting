@@ -2,7 +2,7 @@ use accounting_core::{
     backend::{
         collection::Collection,
         id::Id,
-        query::{BooleanExpr, Comparator, Query, QueryParameter, Queryable},
+        query::{Comparator, Query, QueryParameter, Queryable},
         user::{ChangeGroup, Group, WithGroup},
         version::{Version, Versioned},
     },
@@ -102,7 +102,7 @@ where
     where
         T: Queryable,
     {
-        let query = query_to_document::<T>(query.expr())?;
+        let query = query_to_document(query)?;
         let count = self
             .collection
             .count_documents(Some(query), None)
@@ -112,35 +112,23 @@ where
     }
 }
 
-fn query_to_document<T>(expr: &BooleanExpr<T::Query>) -> Result<bson::Document>
+fn query_to_document<T>(query: Query<T>) -> Result<bson::Document>
 where
     T: Queryable,
 {
-    fn map_clauses<'a, T: Queryable>(
-        clauses: impl IntoIterator<Item = &'a BooleanExpr<T::Query>>,
-    ) -> Result<Vec<bson::Bson>>
-    where
-        T::Query: 'a,
-    {
-        clauses
-            .into_iter()
-            .map(query_to_document::<T>)
-            .map(|res| res.map(Into::into))
-            .collect()
-    }
-    match expr {
-        BooleanExpr::All(clauses) => Ok(bson::doc! { "$and": map_clauses::<T>(clauses)? }),
-        BooleanExpr::Any(clauses) => Ok(bson::doc! { "$or": map_clauses::<T>(clauses)? }),
-        BooleanExpr::Not(expr) => Ok(bson::doc! { "$not": query_to_document::<T>(expr)? }),
-        BooleanExpr::Value(param) => {
+    query.try_fold_expr(
+        |clauses| Ok(bson::doc! { "$and": clauses }),
+        |clauses| Ok(bson::doc! { "$or": clauses }),
+        |expr| Ok(bson::doc! { "$not": expr }),
+        |param| {
             let path = param.path().join(".");
             let comparator = comparator_to_operator(param.comparator());
             let value = param
                 .serialize_value(bson_serializer())
                 .map_err(Error::backend)?;
             Ok(bson::doc! { path: { comparator: value } })
-        }
-    }
+        },
+    )
 }
 
 fn bson_serializer() -> bson::Serializer {

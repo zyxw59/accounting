@@ -25,8 +25,14 @@ impl<T: Queryable> Query<T> {
         }
     }
 
-    pub fn expr(&self) -> &BooleanExpr<T::Query> {
-        &self.expr
+    pub fn try_fold_expr<U, E>(
+        &self,
+        all_f: impl Fn(Vec<U>) -> Result<U, E>,
+        any_f: impl Fn(Vec<U>) -> Result<U, E>,
+        not_f: impl Fn(U) -> Result<U, E>,
+        f: impl Fn(&T::Query) -> Result<U, E>,
+    ) -> Result<U, E> {
+        self.expr.try_fold(&all_f, &any_f, &not_f, &f)
     }
 }
 
@@ -40,7 +46,7 @@ impl<T: Queryable> ops::Not for Query<T> {
     }
 }
 
-pub enum BooleanExpr<T> {
+enum BooleanExpr<T> {
     Value(T),
     Not(Box<Self>),
     Any(Vec<Self>),
@@ -73,6 +79,33 @@ impl<T> BooleanExpr<T> {
                 Self::Any(a)
             }
             (a, b) => Self::Any(vec![a, b]),
+        }
+    }
+
+    fn try_fold<U, E>(
+        &self,
+        all_f: &impl Fn(Vec<U>) -> Result<U, E>,
+        any_f: &impl Fn(Vec<U>) -> Result<U, E>,
+        not_f: &impl Fn(U) -> Result<U, E>,
+        f: &impl Fn(&T) -> Result<U, E>,
+    ) -> Result<U, E> {
+        match self {
+            BooleanExpr::All(clauses) => {
+                let clauses = clauses
+                    .iter()
+                    .map(|expr| expr.try_fold(all_f, any_f, not_f, f))
+                    .collect::<Result<_, E>>()?;
+                all_f(clauses)
+            }
+            BooleanExpr::Any(clauses) => {
+                let clauses = clauses
+                    .iter()
+                    .map(|expr| expr.try_fold(all_f, any_f, not_f, f))
+                    .collect::<Result<_, E>>()?;
+                any_f(clauses)
+            }
+            BooleanExpr::Not(expr) => not_f(expr.try_fold(all_f, any_f, not_f, f)?),
+            BooleanExpr::Value(value) => f(value),
         }
     }
 }
