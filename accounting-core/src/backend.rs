@@ -11,6 +11,7 @@ pub mod collection;
 pub mod id;
 pub mod user;
 pub mod version;
+pub mod query;
 
 use collection::Collection;
 use id::Id;
