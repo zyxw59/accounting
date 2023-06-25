@@ -2,12 +2,17 @@ use std::{borrow::Cow, ops};
 
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::backend::{
+    id::Id,
+    user::{Group, WithGroup},
+};
+
 pub struct Query<T: Queryable> {
-    expr: BooleanExpr<T::Query>,
+    expr: BooleanExpr<GroupQuery<T>>,
 }
 
 impl<T: Queryable> Query<T> {
-    pub fn new(query: T::Query) -> Self {
+    pub fn new(query: GroupQuery<T>) -> Self {
         Self {
             expr: BooleanExpr::Value(query),
         }
@@ -30,7 +35,7 @@ impl<T: Queryable> Query<T> {
         all_f: impl Fn(Vec<U>) -> Result<U, E>,
         any_f: impl Fn(Vec<U>) -> Result<U, E>,
         not_f: impl Fn(U) -> Result<U, E>,
-        f: impl Fn(&T::Query) -> Result<U, E>,
+        f: impl Fn(&GroupQuery<T>) -> Result<U, E>,
     ) -> Result<U, E> {
         self.expr.try_fold(&all_f, &any_f, &not_f, &f)
     }
@@ -154,6 +159,7 @@ pub enum Comparator {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "op", content = "value")]
 pub enum SimpleQuery<T> {
     Equal(T),
     NotEqual(T),
@@ -211,6 +217,52 @@ where
             | Self::Less(val)
             | Self::LessOrEqual(val) => val.serialize(serializer),
             Self::In(vals) | Self::NotIn(vals) => vals.serialize(serializer),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum GroupQuery<T: Queryable> {
+    Group {
+        #[serde(rename = "_group")]
+        group: Id<Group>,
+    },
+    Other(T::Query),
+}
+
+impl<T> QueryParameter<WithGroup<T>> for GroupQuery<T>
+where
+    T: Queryable,
+{
+    fn matches(&self, object: &WithGroup<T>) -> bool {
+        match self {
+            Self::Group { group } => *group == object.group,
+            Self::Other(query) => query.matches(&object.object),
+        }
+    }
+
+    fn path(&self) -> Cow<[&'static str]> {
+        match self {
+            Self::Group { .. } => Cow::Borrowed(&["_group"]),
+            Self::Other(query) => query.path(),
+        }
+    }
+
+    fn comparator(&self) -> Comparator {
+        match self {
+            Self::Group { .. } => Comparator::Equal,
+            Self::Other(query) => query.comparator(),
+        }
+    }
+
+    fn serialize_value<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Group { group } => group.serialize(serializer),
+            Self::Other(query) => query.serialize_value(serializer),
         }
     }
 }
