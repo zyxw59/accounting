@@ -146,7 +146,7 @@ pub trait QueryParameter<T>: Send {
         S: Serializer;
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum Comparator {
     Equal,
     NotEqual,
@@ -154,21 +154,12 @@ pub enum Comparator {
     GreaterOrEqual,
     Less,
     LessOrEqual,
-    In,
-    NotIn,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "op", content = "value")]
-pub enum SimpleQuery<T> {
-    Equal(T),
-    NotEqual(T),
-    Greater(T),
-    GreaterOrEqual(T),
-    Less(T),
-    LessOrEqual(T),
-    In(Vec<T>),
-    NotIn(Vec<T>),
+pub struct SimpleQuery<T> {
+    pub op: Comparator,
+    pub value: T,
 }
 
 impl<T> QueryParameter<T> for SimpleQuery<T>
@@ -176,15 +167,13 @@ where
     T: Ord + Serialize + Send,
 {
     fn matches(&self, object: &T) -> bool {
-        match self {
-            Self::Equal(query) => object == query,
-            Self::NotEqual(query) => object != query,
-            Self::Greater(query) => object > query,
-            Self::GreaterOrEqual(query) => object >= query,
-            Self::Less(query) => object < query,
-            Self::LessOrEqual(query) => object <= query,
-            Self::In(query) => query.contains(object),
-            Self::NotIn(query) => !query.contains(object),
+        match self.op {
+            Comparator::Equal => object == &self.value,
+            Comparator::NotEqual => object != &self.value,
+            Comparator::Greater => object > &self.value,
+            Comparator::GreaterOrEqual => object >= &self.value,
+            Comparator::Less => object < &self.value,
+            Comparator::LessOrEqual => object <= &self.value,
         }
     }
 
@@ -193,31 +182,14 @@ where
     }
 
     fn comparator(&self) -> Comparator {
-        match self {
-            Self::Equal(_) => Comparator::Equal,
-            Self::NotEqual(_) => Comparator::NotEqual,
-            Self::Greater(_) => Comparator::Greater,
-            Self::GreaterOrEqual(_) => Comparator::GreaterOrEqual,
-            Self::Less(_) => Comparator::Less,
-            Self::LessOrEqual(_) => Comparator::LessOrEqual,
-            Self::In(_) => Comparator::In,
-            Self::NotIn(_) => Comparator::NotIn,
-        }
+        self.op
     }
 
     fn serialize_value<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        match self {
-            Self::Equal(val)
-            | Self::NotEqual(val)
-            | Self::Greater(val)
-            | Self::GreaterOrEqual(val)
-            | Self::Less(val)
-            | Self::LessOrEqual(val) => val.serialize(serializer),
-            Self::In(vals) | Self::NotIn(vals) => vals.serialize(serializer),
-        }
+        self.value.serialize(serializer)
     }
 }
 

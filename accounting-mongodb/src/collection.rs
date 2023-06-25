@@ -146,8 +146,6 @@ fn comparator_to_operator(comparator: Comparator) -> &'static str {
         Comparator::GreaterOrEqual => "$gte",
         Comparator::Less => "$lt",
         Comparator::LessOrEqual => "$lte",
-        Comparator::In => "$in",
-        Comparator::NotIn => "$nin",
     }
 }
 
