@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use crate::{
     backend::{
         id::Id,
+        query::{Query, Queryable},
         user::{ChangeGroup, Group, WithGroup},
         version::Versioned,
     },
@@ -30,4 +31,9 @@ pub trait Collection<T> {
     async fn change_group(&mut self, id: Id<T>, new_group: Id<Group>) -> Result<()>
     where
         T: ChangeGroup;
+
+    /// Count the number of objects matching the query.
+    async fn query_count(&self, query: Query<T>) -> Result<usize>
+    where
+        T: Queryable;
 }

@@ -24,6 +24,10 @@ impl<T: Queryable> Query<T> {
             expr: self.expr.or(other.expr),
         }
     }
+
+    pub fn expr(&self) -> &BooleanExpr<T::Query> {
+        &self.expr
+    }
 }
 
 impl<T: Queryable> ops::Not for Query<T> {
@@ -36,7 +40,7 @@ impl<T: Queryable> ops::Not for Query<T> {
     }
 }
 
-enum BooleanExpr<T> {
+pub enum BooleanExpr<T> {
     Value(T),
     Not(Box<Self>),
     Any(Vec<Self>),
@@ -88,7 +92,7 @@ pub trait Queryable: Sized {
     type Query: QueryParameter<Self>;
 }
 
-pub trait QueryParameter<T> {
+pub trait QueryParameter<T>: Send {
     /// Whether the object matches this query.
     fn matches(&self, object: &T) -> bool;
 
@@ -130,7 +134,7 @@ pub enum SimpleQuery<T> {
 
 impl<T> QueryParameter<T> for SimpleQuery<T>
 where
-    T: Ord + Serialize,
+    T: Ord + Serialize + Send,
 {
     fn matches(&self, object: &T) -> bool {
         match self {
