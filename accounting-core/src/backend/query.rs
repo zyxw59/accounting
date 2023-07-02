@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ops};
+use std::{borrow::Cow, collections::BTreeMap, ops};
 
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -30,14 +30,21 @@ impl<T: Queryable> Query<T> {
         }
     }
 
-    pub fn try_fold_expr<U, E>(
-        &self,
-        all_f: impl Fn(Vec<U>) -> Result<U, E>,
-        any_f: impl Fn(Vec<U>) -> Result<U, E>,
-        not_f: impl Fn(U) -> Result<U, E>,
-        f: impl Fn(&GroupQuery<T>) -> Result<U, E>,
-    ) -> Result<U, E> {
-        self.expr.try_fold(&all_f, &any_f, &not_f, &f)
+    pub fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
+    where
+        F: Fn() -> S,
+        S: Serializer,
+    {
+        self.expr.try_fold(
+            &|clauses| Ok(SerializedQuery::Boolean(SimpleBooleanExpr::And(clauses))),
+            &|clauses| Ok(SerializedQuery::Boolean(SimpleBooleanExpr::Or(clauses))),
+            &|expr| {
+                Ok(SerializedQuery::Boolean(SimpleBooleanExpr::Not(Box::new(
+                    expr,
+                ))))
+            },
+            &|query| query.serialize_query(&factory),
+        )
     }
 }
 
@@ -127,69 +134,70 @@ impl<T> ops::Not for BooleanExpr<T> {
 }
 
 pub trait Queryable: Sized {
-    type Query: QueryParameter<Self>;
+    type Query: QueryParameter<Self> + Send;
 }
 
-pub trait QueryParameter<T>: Send {
+pub trait QueryParameter<T> {
     /// Whether the object matches this query.
     fn matches(&self, object: &T) -> bool;
 
-    /// The path to the queried field in the serialized form of the object.
-    fn path(&self) -> Cow<[&'static str]>;
-
-    /// The comparison operator used for this query.
-    fn comparator(&self) -> Comparator;
-
-    /// Serializes the value of this query parameter.
-    fn serialize_value<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    /// Partially serialize the query, using the provided serializer factory to serialize the query
+    /// values.
+    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
+        F: Fn() -> S,
         S: Serializer;
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub enum Comparator {
+    #[serde(rename = "$eq")]
     Equal,
+    #[serde(rename = "$ne")]
     NotEqual,
+    #[serde(rename = "$gt")]
     Greater,
+    #[serde(rename = "$gte")]
     GreaterOrEqual,
+    #[serde(rename = "$lt")]
     Less,
+    #[serde(rename = "$lte")]
     LessOrEqual,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SimpleQuery<T> {
-    pub op: Comparator,
-    pub value: T,
-}
+#[serde(transparent)]
+pub struct SimpleQuery<T>(pub BTreeMap<Comparator, T>);
 
 impl<T> QueryParameter<T> for SimpleQuery<T>
 where
     T: Ord + Serialize + Send,
 {
     fn matches(&self, object: &T) -> bool {
-        match self.op {
-            Comparator::Equal => object == &self.value,
-            Comparator::NotEqual => object != &self.value,
-            Comparator::Greater => object > &self.value,
-            Comparator::GreaterOrEqual => object >= &self.value,
-            Comparator::Less => object < &self.value,
-            Comparator::LessOrEqual => object <= &self.value,
-        }
+        self.0.iter().all(|(op, value)| match op {
+            Comparator::Equal => object == value,
+            Comparator::NotEqual => object != value,
+            Comparator::Greater => object > value,
+            Comparator::GreaterOrEqual => object >= value,
+            Comparator::Less => object < value,
+            Comparator::LessOrEqual => object <= value,
+        })
     }
 
-    fn path(&self) -> Cow<[&'static str]> {
-        Cow::Borrowed(&[])
-    }
-
-    fn comparator(&self) -> Comparator {
-        self.op
-    }
-
-    fn serialize_value<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
+        F: Fn() -> S,
         S: Serializer,
     {
-        self.value.serialize(serializer)
+        self.0
+            .iter()
+            .map(|(op, value)| {
+                value
+                    .serialize(factory())
+                    .map(|ser| (*op, SerializedQuery::Value(ser)))
+            })
+            .collect::<Result<_, _>>()
+            .map(SerializedQuery::Comparator)
     }
 }
 
@@ -214,27 +222,47 @@ where
         }
     }
 
-    fn path(&self) -> Cow<[&'static str]> {
-        match self {
-            Self::Group { .. } => Cow::Borrowed(&["_group"]),
-            Self::Other(query) => query.path(),
-        }
-    }
-
-    fn comparator(&self) -> Comparator {
-        match self {
-            Self::Group { .. } => Comparator::Equal,
-            Self::Other(query) => query.comparator(),
-        }
-    }
-
-    fn serialize_value<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
+        F: Fn() -> S,
         S: Serializer,
     {
         match self {
-            Self::Group { group } => group.serialize(serializer),
-            Self::Other(query) => query.serialize_value(serializer),
+            Self::Group { group } => Ok(SerializedQuery::from_path_and_query(
+                &["_group"],
+                SerializedQuery::Value(group.serialize(factory())?),
+            )),
+            Self::Other(query) => query.serialize_query(factory),
         }
     }
+}
+
+/// A query with the structure preserved, but the query values replaced by their serialized forms.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SerializedQuery<T> {
+    Boolean(SimpleBooleanExpr<SerializedQuery<T>>),
+    Comparator(BTreeMap<Comparator, SerializedQuery<T>>),
+    Paths(BTreeMap<Cow<'static, str>, SerializedQuery<T>>),
+    Value(T),
+}
+
+impl<T> SerializedQuery<T> {
+    pub fn from_path_and_query(path: &[&'static str], mut query: Self) -> Self {
+        for field in path.iter().rev() {
+            let map = [(Cow::Borrowed(*field), query)].into_iter().collect();
+            query = SerializedQuery::Paths(map);
+        }
+        query
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SimpleBooleanExpr<T> {
+    #[serde(rename = "$not")]
+    Not(Box<T>),
+    #[serde(rename = "$or")]
+    Or(Vec<T>),
+    #[serde(rename = "$and")]
+    And(Vec<T>),
 }

@@ -1,7 +1,12 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::{
-    backend::{id::Id, version::Versioned},
+    backend::{
+        id::Id,
+        query::{QueryParameter, Queryable, SerializedQuery, SimpleQuery},
+        version::Versioned,
+    },
     map::Map,
 };
 
@@ -15,6 +20,50 @@ pub struct User {
 pub struct Group {
     pub name: String,
     pub permissions: Permissions,
+}
+
+impl Queryable for Group {
+    type Query = GroupQuery;
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum GroupQuery {
+    Name(SimpleQuery<String>),
+    /// Queries whether the user has any permissions specified, including `None`
+    UserAny(Id<User>),
+    /// Queries whether the specified user has the specified permission
+    UserPerm(Id<User>, AccessLevel),
+}
+
+impl QueryParameter<Group> for GroupQuery {
+    fn matches(&self, group: &Group) -> bool {
+        match self {
+            Self::Name(query) => query.matches(&group.name),
+            Self::UserAny(user) => group.permissions.users.contains_key(user),
+            Self::UserPerm(user, access) => group.permissions.get(*user) == *access,
+        }
+    }
+
+    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
+    where
+        F: Fn() -> S,
+        S: Serializer,
+    {
+        match self {
+            Self::Name(query) => Ok(SerializedQuery::from_path_and_query(
+                &["name"],
+                query.serialize_query(factory)?,
+            )),
+            Self::UserAny(user) => Ok(SerializedQuery::from_path_and_query(
+                &["permissions", "users", "0"],
+                SerializedQuery::Value(user.serialize(factory())?),
+            )),
+            Self::UserPerm(user, access) => Ok(SerializedQuery::from_path_and_query(
+                &["permissions", "users"],
+                SerializedQuery::Value((user, access).serialize(factory())?),
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -63,7 +112,10 @@ impl Permissions {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Deserialize_repr, Serialize_repr,
+)]
+#[repr(u8)]
 pub enum AccessLevel {
     /// No access
     #[default]

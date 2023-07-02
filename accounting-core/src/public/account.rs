@@ -1,8 +1,6 @@
-use std::borrow::Cow;
-
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::backend::query::{Comparator, QueryParameter, Queryable, SimpleQuery};
+use crate::backend::query::{QueryParameter, Queryable, SerializedQuery, SimpleQuery};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Account {
@@ -28,27 +26,20 @@ impl QueryParameter<Account> for AccountQuery {
         }
     }
 
-    fn path(&self) -> Cow<[&'static str]> {
-        match self {
-            Self::Name(_) => Cow::Borrowed(&["name"]),
-            Self::Description(_) => Cow::Borrowed(&["description"]),
-        }
-    }
-
-    fn comparator(&self) -> Comparator {
-        match self {
-            Self::Name(query) => query.comparator(),
-            Self::Description(query) => query.comparator(),
-        }
-    }
-
-    fn serialize_value<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
+        F: Fn() -> S,
         S: Serializer,
     {
         match self {
-            Self::Name(query) => query.serialize_value(serializer),
-            Self::Description(query) => query.serialize_value(serializer),
+            Self::Name(query) => Ok(SerializedQuery::from_path_and_query(
+                &["name"],
+                query.serialize_query(factory)?,
+            )),
+            Self::Description(query) => Ok(SerializedQuery::from_path_and_query(
+                &["description"],
+                query.serialize_query(factory)?,
+            )),
         }
     }
 }

@@ -2,7 +2,7 @@ use accounting_core::{
     backend::{
         collection::Collection,
         id::Id,
-        query::{Comparator, Query, QueryParameter, Queryable},
+        query::{Query, Queryable},
         user::{ChangeGroup, Group, WithGroup},
         version::{Version, Versioned},
     },
@@ -116,37 +116,26 @@ fn query_to_document<T>(query: Query<T>) -> Result<bson::Document>
 where
     T: Queryable,
 {
-    query.try_fold_expr(
-        |clauses| Ok(bson::doc! { "$and": clauses }),
-        |clauses| Ok(bson::doc! { "$or": clauses }),
-        |expr| Ok(bson::doc! { "$not": expr }),
-        |param| {
-            let path = param.path().join(".");
-            let comparator = comparator_to_operator(param.comparator());
-            let value = param
-                .serialize_value(bson_serializer())
-                .map_err(Error::backend)?;
-            Ok(bson::doc! { path: { comparator: value } })
-        },
-    )
+    query
+        .serialize_query(bson_serializer)
+        .and_then(|query| to_bson_document(&query))
+        .map_err(Error::backend)
+}
+
+/// Default BSON serializer options, except the `human_readable` flag is set to false, to ensure
+/// correct serialization of dates.
+fn bson_serializer_options() -> bson::SerializerOptions {
+    bson::SerializerOptions::builder()
+        .human_readable(false)
+        .build()
+}
+
+fn to_bson_document<T: Serialize>(value: &T) -> Result<bson::Document, bson::ser::Error> {
+    bson::to_document_with_options(value, bson_serializer_options())
 }
 
 fn bson_serializer() -> bson::Serializer {
-    let options = bson::SerializerOptions::builder()
-        .human_readable(false)
-        .build();
-    bson::Serializer::new_with_options(options)
-}
-
-fn comparator_to_operator(comparator: Comparator) -> &'static str {
-    match comparator {
-        Comparator::Equal => "$eq",
-        Comparator::NotEqual => "$neq",
-        Comparator::Greater => "$gt",
-        Comparator::GreaterOrEqual => "$gte",
-        Comparator::Less => "$lt",
-        Comparator::LessOrEqual => "$lte",
-    }
+    bson::Serializer::new_with_options(bson_serializer_options())
 }
 
 const ID_FIELD: &str = "_id";

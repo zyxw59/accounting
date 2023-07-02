@@ -1,12 +1,10 @@
-use std::borrow::Cow;
-
 use serde::{Deserialize, Serialize, Serializer};
 use time::Date;
 
 use crate::{
     backend::{
         id::Id,
-        query::{Comparator, QueryParameter, Queryable, SimpleQuery},
+        query::{QueryParameter, Queryable, SerializedQuery, SimpleQuery},
     },
     map::Map,
     public::{account::Account, amount::Amount},
@@ -40,27 +38,20 @@ impl QueryParameter<Transaction> for TransactionQuery {
         }
     }
 
-    fn path(&self) -> Cow<[&'static str]> {
-        match self {
-            Self::Date(_) => Cow::Borrowed(&["date"]),
-            Self::Description(_) => Cow::Borrowed(&["description"]),
-        }
-    }
-
-    fn comparator(&self) -> Comparator {
-        match self {
-            Self::Date(query) => query.comparator(),
-            Self::Description(query) => query.comparator(),
-        }
-    }
-
-    fn serialize_value<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
+        F: Fn() -> S,
         S: Serializer,
     {
         match self {
-            Self::Date(query) => query.serialize_value(serializer),
-            Self::Description(query) => query.serialize_value(serializer),
+            Self::Date(query) => Ok(SerializedQuery::from_path_and_query(
+                &["date"],
+                query.serialize_query(factory)?,
+            )),
+            Self::Description(query) => Ok(SerializedQuery::from_path_and_query(
+                &["description"],
+                query.serialize_query(factory)?,
+            )),
         }
     }
 }
