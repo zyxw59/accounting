@@ -51,16 +51,16 @@ impl QueryParameter<Group> for GroupQuery {
     {
         match self {
             Self::Name(query) => Ok(SerializedQuery::from_path_and_query(
-                &["name"],
+                "name",
                 query.serialize_query(factory)?,
             )),
             Self::UserAny(user) => Ok(SerializedQuery::from_path_and_query(
-                &["permissions", "users", "0"],
-                SerializedQuery::Value(user.serialize(factory())?),
+                ["permissions", "users", "0"],
+                SerializedQuery::from_value(user, factory)?,
             )),
             Self::UserPerm(user, access) => Ok(SerializedQuery::from_path_and_query(
-                &["permissions", "users"],
-                SerializedQuery::Value((user, access).serialize(factory())?),
+                ["permissions", "users"],
+                SerializedQuery::from_value((user, access), factory)?,
             )),
         }
     }

@@ -3,7 +3,7 @@ use std::{fmt, ops};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct Amount {
     /// Credits are negative, debits are positive.
     #[serde(with = "rust_decimal::serde::str")]
@@ -11,6 +11,10 @@ pub struct Amount {
 }
 
 impl Amount {
+    pub const ZERO: Self = Amount {
+        value: Decimal::ZERO,
+    };
+
     /// Returns whether the amount is a debit amount
     pub fn is_debit(self) -> bool {
         self.value > Decimal::ZERO

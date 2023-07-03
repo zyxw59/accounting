@@ -33,11 +33,11 @@ impl QueryParameter<Account> for AccountQuery {
     {
         match self {
             Self::Name(query) => Ok(SerializedQuery::from_path_and_query(
-                &["name"],
+                "name",
                 query.serialize_query(factory)?,
             )),
             Self::Description(query) => Ok(SerializedQuery::from_path_and_query(
-                &["description"],
+                "description",
                 query.serialize_query(factory)?,
             )),
         }

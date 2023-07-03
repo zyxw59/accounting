@@ -191,11 +191,7 @@ where
     {
         self.0
             .iter()
-            .map(|(op, value)| {
-                value
-                    .serialize(factory())
-                    .map(|ser| (*op, SerializedQuery::Value(ser)))
-            })
+            .map(|(op, value)| Ok((*op, SerializedQuery::from_value(value, &factory)?)))
             .collect::<Result<_, _>>()
             .map(SerializedQuery::Comparator)
     }
@@ -229,8 +225,8 @@ where
     {
         match self {
             Self::Group { group } => Ok(SerializedQuery::from_path_and_query(
-                &["_group"],
-                SerializedQuery::Value(group.serialize(factory())?),
+                "_group",
+                SerializedQuery::from_value(group, factory)?,
             )),
             Self::Other(query) => query.serialize_query(factory),
         }
@@ -248,12 +244,59 @@ pub enum SerializedQuery<T> {
 }
 
 impl<T> SerializedQuery<T> {
-    pub fn from_path_and_query(path: &[&'static str], mut query: Self) -> Self {
-        for field in path.iter().rev() {
-            let map = [(Cow::Borrowed(*field), query)].into_iter().collect();
+    pub fn from_path_and_query(path: impl IntoPath, mut query: Self) -> Self {
+        for field in path.into_path().rev() {
+            let map = [(Cow::Borrowed(field), query)].into_iter().collect();
             query = SerializedQuery::Paths(map);
         }
         query
+    }
+
+    pub fn from_value<S, V>(value: V, factory: impl Fn() -> S) -> Result<Self, S::Error>
+    where
+        S: Serializer<Ok = T>,
+        V: Serialize,
+    {
+        value.serialize(factory()).map(Self::Value)
+    }
+
+    pub fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (
+                Self::Boolean(SimpleBooleanExpr::And(mut a)),
+                Self::Boolean(SimpleBooleanExpr::And(mut b)),
+            ) => {
+                a.append(&mut b);
+                Self::Boolean(SimpleBooleanExpr::And(a))
+            }
+            (Self::Boolean(SimpleBooleanExpr::And(mut a)), b)
+            | (b, Self::Boolean(SimpleBooleanExpr::And(mut a))) => {
+                a.push(b);
+                Self::Boolean(SimpleBooleanExpr::And(a))
+            }
+            (a, b) => Self::Boolean(SimpleBooleanExpr::And(vec![a, b])),
+        }
+    }
+}
+
+pub trait IntoPath {
+    type PathIter: DoubleEndedIterator<Item = &'static str>;
+    fn into_path(self) -> Self::PathIter;
+}
+
+impl IntoPath for &'static str {
+    type PathIter = std::iter::Once<&'static str>;
+
+    fn into_path(self) -> Self::PathIter {
+        std::iter::once(self)
+    }
+}
+
+impl<const N: usize> IntoPath for [&'static str; N] {
+    type PathIter = std::array::IntoIter<&'static str, N>;
+
+    fn into_path(self) -> Self::PathIter {
+        self.into_iter()
     }
 }
 

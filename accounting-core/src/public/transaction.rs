@@ -27,7 +27,9 @@ pub enum TransactionQuery {
     // TODO: serialize correctly
     Date(SimpleQuery<Date>),
     Description(SimpleQuery<String>),
-    // TODO: amount
+    /// The transaction involves the specified account
+    Account(Id<Account>),
+    AccountAmount(Id<Account>, SimpleQuery<Amount>),
 }
 
 impl QueryParameter<Transaction> for TransactionQuery {
@@ -35,6 +37,10 @@ impl QueryParameter<Transaction> for TransactionQuery {
         match self {
             Self::Date(query) => query.matches(&transaction.date),
             Self::Description(query) => query.matches(&transaction.description),
+            Self::Account(account) => transaction.amounts.contains_key(account),
+            Self::AccountAmount(account, amount_query) => {
+                amount_query.matches(transaction.amounts.get(account).unwrap_or(&Amount::ZERO))
+            }
         }
     }
 
@@ -45,12 +51,28 @@ impl QueryParameter<Transaction> for TransactionQuery {
     {
         match self {
             Self::Date(query) => Ok(SerializedQuery::from_path_and_query(
-                &["date"],
+                "date",
                 query.serialize_query(factory)?,
             )),
             Self::Description(query) => Ok(SerializedQuery::from_path_and_query(
-                &["description"],
+                "description",
                 query.serialize_query(factory)?,
+            )),
+            Self::Account(account) => Ok(SerializedQuery::from_path_and_query(
+                ["amounts", "0"],
+                SerializedQuery::from_value(account, factory)?,
+            )),
+            Self::AccountAmount(account, amount_query) => Ok(SerializedQuery::from_path_and_query(
+                "amounts",
+                SerializedQuery::from_path_and_query(
+                    "0",
+                    SerializedQuery::from_value(account, &factory)?.and(
+                        SerializedQuery::from_path_and_query(
+                            "1",
+                            amount_query.serialize_query(factory)?,
+                        ),
+                    ),
+                ),
             )),
         }
     }
