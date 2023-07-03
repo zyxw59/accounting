@@ -191,7 +191,7 @@ where
     {
         self.0
             .iter()
-            .map(|(op, value)| Ok((*op, SerializedQuery::from_value(value, &factory)?)))
+            .map(|(op, value)| Ok((*op, value.serialize(factory())?)))
             .collect::<Result<_, _>>()
             .map(SerializedQuery::Comparator)
     }
@@ -238,7 +238,7 @@ where
 #[serde(untagged)]
 pub enum SerializedQuery<T> {
     Boolean(SimpleBooleanExpr<SerializedQuery<T>>),
-    Comparator(BTreeMap<Comparator, SerializedQuery<T>>),
+    Comparator(BTreeMap<Comparator, T>),
     Paths(BTreeMap<Cow<'static, str>, SerializedQuery<T>>),
     Value(T),
 }
