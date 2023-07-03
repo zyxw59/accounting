@@ -36,13 +36,9 @@ impl<T: Queryable> Query<T> {
         S: Serializer,
     {
         self.expr.try_fold(
-            &|clauses| Ok(SerializedQuery::Boolean(SimpleBooleanExpr::And(clauses))),
-            &|clauses| Ok(SerializedQuery::Boolean(SimpleBooleanExpr::Or(clauses))),
-            &|expr| {
-                Ok(SerializedQuery::Boolean(SimpleBooleanExpr::Not(Box::new(
-                    expr,
-                ))))
-            },
+            &|clauses| Ok(SerializedQuery::Boolean(BooleanLayer::And(clauses))),
+            &|clauses| Ok(SerializedQuery::Boolean(BooleanLayer::Or(clauses))),
+            &|expr| Ok(SerializedQuery::Boolean(BooleanLayer::Not(Box::new(expr)))),
             &|query| query.serialize_query(&factory),
         )
     }
@@ -237,7 +233,7 @@ where
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SerializedQuery<T> {
-    Boolean(SimpleBooleanExpr<SerializedQuery<T>>),
+    Boolean(BooleanLayer<SerializedQuery<T>>),
     Comparator(BTreeMap<Comparator, T>),
     Paths(BTreeMap<Cow<'static, str>, SerializedQuery<T>>),
     Value(T),
@@ -262,19 +258,16 @@ impl<T> SerializedQuery<T> {
 
     pub fn and(self, other: Self) -> Self {
         match (self, other) {
-            (
-                Self::Boolean(SimpleBooleanExpr::And(mut a)),
-                Self::Boolean(SimpleBooleanExpr::And(mut b)),
-            ) => {
+            (Self::Boolean(BooleanLayer::And(mut a)), Self::Boolean(BooleanLayer::And(mut b))) => {
                 a.append(&mut b);
-                Self::Boolean(SimpleBooleanExpr::And(a))
+                Self::Boolean(BooleanLayer::And(a))
             }
-            (Self::Boolean(SimpleBooleanExpr::And(mut a)), b)
-            | (b, Self::Boolean(SimpleBooleanExpr::And(mut a))) => {
+            (Self::Boolean(BooleanLayer::And(mut a)), b)
+            | (b, Self::Boolean(BooleanLayer::And(mut a))) => {
                 a.push(b);
-                Self::Boolean(SimpleBooleanExpr::And(a))
+                Self::Boolean(BooleanLayer::And(a))
             }
-            (a, b) => Self::Boolean(SimpleBooleanExpr::And(vec![a, b])),
+            (a, b) => Self::Boolean(BooleanLayer::And(vec![a, b])),
         }
     }
 }
@@ -301,7 +294,7 @@ impl<const N: usize> IntoPath for [&'static str; N] {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum SimpleBooleanExpr<T> {
+pub enum BooleanLayer<T> {
     #[serde(rename = "$not")]
     Not(Box<T>),
     #[serde(rename = "$or")]
