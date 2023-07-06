@@ -31,6 +31,14 @@ impl<T> Id<T> {
         rand::random()
     }
 
+    #[cfg(test)]
+    pub(crate) fn new(id: u64) -> Self {
+        Self {
+            id,
+            _marker: PhantomData,
+        }
+    }
+
     /// Produce an identical `Id` for a different type
     pub fn transmute<U>(self) -> Id<U> {
         Id {

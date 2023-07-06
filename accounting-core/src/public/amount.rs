@@ -4,8 +4,10 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Amount {
     /// Credits are negative, debits are positive.
+    // TODO: serialize this numerically; maybe also switch to actual fixed-point arithmetic.
     #[serde(with = "rust_decimal::serde::str")]
     value: Decimal,
 }

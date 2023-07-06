@@ -64,14 +64,55 @@ impl QueryParameter<Transaction> for TransactionQuery {
                 "amounts",
                 SerializedQuery::from_path_and_query(
                     "0",
-                    SerializedQuery::from_value(account, &factory)?.and(
-                        SerializedQuery::from_path_and_query(
-                            "1",
-                            amount_query.serialize_query(factory)?,
-                        ),
-                    ),
-                ),
+                    SerializedQuery::from_value(account, &factory)?,
+                )
+                .and(SerializedQuery::from_path_and_query(
+                    "1",
+                    amount_query.serialize_query(factory)?,
+                )),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TransactionQuery;
+    use crate::{
+        backend::{
+            id::Id,
+            query::{Comparator, QueryParameter, SimpleQuery},
+        },
+        public::amount::Amount,
+    };
+
+    #[test]
+    fn serialize_query() {
+        let query = TransactionQuery::AccountAmount(
+            Id::new(1234),
+            SimpleQuery([(Comparator::Greater, Amount::ZERO)].into_iter().collect()),
+        );
+
+        let serialized_query = query
+            .serialize_query(|| serde_json::value::Serializer)
+            .unwrap();
+        let serialized = serde_json::to_value(&serialized_query).unwrap();
+
+        let expected = serde_json::json!({
+            "amounts": {
+                "$and": [
+                    { "0": 1234 },
+                    { "1": { "$gt": "0" } },
+                ],
+            }
+        });
+        assert!(
+            serialized == expected,
+            r#"assertion failed: `(left == right)`
+  left: {:#},
+ right: {:#}"#,
+            serialized,
+            expected
+        );
     }
 }
