@@ -159,20 +159,13 @@ mod tests {
         let serialized = serde_json::to_value(&serialized_query).unwrap();
 
         let expected = serde_json::json!({
-            "amounts": {
-                "$and": [
-                    { "0": 1234 },
-                    { "1": { "$gt": "0" } },
+            "permissions": {
+                "users": [
+                    1234,
+                    { "$gte": 1 },
                 ],
             }
         });
-        assert!(
-            serialized == expected,
-            r#"assertion failed: `(left == right)`
-  left: {:#},
- right: {:#}"#,
-            serialized,
-            expected
-        );
+        pretty_assertions::assert_eq!(format!("{serialized:#}"), format!("{expected:#}"));
     }
 }

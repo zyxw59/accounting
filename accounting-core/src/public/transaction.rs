@@ -108,13 +108,6 @@ mod tests {
                 ],
             }
         });
-        assert!(
-            serialized == expected,
-            r#"assertion failed: `(left == right)`
-  left: {:#},
- right: {:#}"#,
-            serialized,
-            expected
-        );
+        pretty_assertions::assert_eq!(format!("{serialized:#}"), format!("{expected:#}"));
     }
 }
