@@ -13,17 +13,22 @@ impl Queryable for Account {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum AccountQuery {
-    Name(SimpleQuery<String>),
-    Description(SimpleQuery<String>),
+pub struct AccountQuery {
+    pub name: Option<SimpleQuery<String>>,
+    pub description: Option<SimpleQuery<String>>,
 }
 
 impl Query<Account> for AccountQuery {
     fn matches(&self, account: &Account) -> bool {
-        match self {
-            Self::Name(query) => query.matches(&account.name),
-            Self::Description(query) => query.matches(&account.description),
-        }
+        self.name
+            .as_ref()
+            .map(|q| q.matches(&account.name))
+            .unwrap_or(true)
+            && self
+                .description
+                .as_ref()
+                .map(|q| q.matches(&account.description))
+                .unwrap_or(true)
     }
 
     fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
@@ -31,15 +36,27 @@ impl Query<Account> for AccountQuery {
         F: Fn() -> S,
         S: Serializer,
     {
-        match self {
-            Self::Name(query) => Ok(SerializedQuery::from_path_and_query(
-                "name",
-                query.serialize_value(factory)?.into(),
-            )),
-            Self::Description(query) => Ok(SerializedQuery::from_path_and_query(
-                "description",
-                query.serialize_value(factory)?.into(),
-            )),
-        }
+        let name_query = self
+            .name
+            .as_ref()
+            .map(|query| {
+                Ok(SerializedQuery::from_path_and_query(
+                    "name",
+                    query.serialize_value(factory)?.into(),
+                ))
+            })
+            .transpose()?;
+        let description_query = self
+            .description
+            .as_ref()
+            .map(|query| {
+                Ok(SerializedQuery::from_path_and_query(
+                    "description",
+                    query.serialize_value(factory)?.into(),
+                ))
+            })
+            .transpose()?;
+
+        Ok(SerializedQuery::all_opt([name_query, description_query]))
     }
 }

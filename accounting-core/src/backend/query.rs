@@ -82,13 +82,15 @@ where
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum GroupQuery<T: Queryable> {
-    Group {
-        #[serde(rename = "_group")]
-        group: Id<Group>,
-    },
-    Other(T::Query),
+#[serde(bound(
+    deserialize = "T::Query: Deserialize<'de>",
+    serialize = "T::Query: Serialize"
+))]
+pub struct GroupQuery<T: Queryable> {
+    #[serde(rename = "_group", skip_serializing_if = "Option::is_none")]
+    pub group: Option<Vec<Id<Group>>>,
+    #[serde(flatten)]
+    pub other: Option<T::Query>,
 }
 
 impl<T> Query<WithGroup<T>> for GroupQuery<T>
@@ -96,10 +98,15 @@ where
     T: Queryable,
 {
     fn matches(&self, object: &WithGroup<T>) -> bool {
-        match self {
-            Self::Group { group } => *group == object.group,
-            Self::Other(query) => query.matches(&object.object),
-        }
+        self.group
+            .as_ref()
+            .map(|groups| groups.contains(&object.group))
+            .unwrap_or(true)
+            && self
+                .other
+                .as_ref()
+                .map(|query| query.matches(&object.object))
+                .unwrap_or(true)
     }
 
     fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
@@ -107,13 +114,23 @@ where
         F: Fn() -> S,
         S: Serializer,
     {
-        match self {
-            Self::Group { group } => Ok(SerializedQuery::from_path_and_query(
-                "_group",
-                SimpleQuery::eq(group.serialize(factory())?).into(),
-            )),
-            Self::Other(query) => query.serialize_query(factory),
-        }
+        let group_query = self
+            .group
+            .as_ref()
+            .map(|groups| {
+                groups
+                    .iter()
+                    .map(|gr| gr.serialize(factory()))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .map(|groups| SerializedQuery::from_path_and_query("_group", QueryElement::In(groups)));
+        let other_query = self
+            .other
+            .as_ref()
+            .map(|query| query.serialize_query(factory))
+            .transpose()?;
+        Ok(SerializedQuery::all_opt([group_query, other_query]))
     }
 }
 
@@ -141,6 +158,16 @@ impl<T> SerializedQuery<T> {
         }
     }
 
+    pub(crate) fn all_opt(queries: impl IntoIterator<Item = Option<Self>>) -> Self {
+        let mut query = Self {
+            expr: BooleanExpr::All(Vec::new()),
+        };
+        for q in queries.into_iter().flatten() {
+            query = query.and(q);
+        }
+        query
+    }
+
     pub(crate) fn and(self, other: Self) -> Self {
         Self {
             expr: self.expr.and(other.expr),
@@ -152,6 +179,7 @@ impl<T> SerializedQuery<T> {
 pub enum QueryElement<T> {
     ElemMatch(SerializedQuery<T>),
     Comparator(SimpleQuery<T>),
+    In(Vec<T>),
     Not(Box<QueryElement<T>>),
 }
 

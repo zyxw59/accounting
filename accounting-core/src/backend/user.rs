@@ -27,24 +27,35 @@ impl Queryable for Group {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum GroupQuery {
-    // { "name": { op: value }}
-    Name(SimpleQuery<String>),
-    /// Queries whether the user has any permissions specified, including `None`
-    // { "permissions.users.0": value }
-    UserAny(Id<User>),
-    /// Queries whether the specified user has the specified permission
-    // { "permissions.users": { "$elemMatch": { "0": id, "1": { op: value } }
-    UserPerm(Id<User>, SimpleQuery<AccessLevel>),
+pub struct GroupQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<SimpleQuery<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_any: Option<Vec<Id<User>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_perm: Option<(Id<User>, SimpleQuery<AccessLevel>)>,
 }
 
 impl Query<Group> for GroupQuery {
     fn matches(&self, group: &Group) -> bool {
-        match self {
-            Self::Name(query) => query.matches(&group.name),
-            Self::UserAny(user) => group.permissions.users.contains_key(user),
-            Self::UserPerm(user, access) => access.matches(&group.permissions.get(*user)),
-        }
+        self.name
+            .as_ref()
+            .map(|q| q.matches(&group.name))
+            .unwrap_or(true)
+            && self
+                .user_any
+                .as_ref()
+                .map(|users| {
+                    users
+                        .iter()
+                        .any(|user| group.permissions.users.contains_key(user))
+                })
+                .unwrap_or(true)
+            && self
+                .user_perm
+                .as_ref()
+                .map(|(user, q)| q.matches(&group.permissions.get(*user)))
+                .unwrap_or(true)
     }
 
     fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
@@ -52,26 +63,53 @@ impl Query<Group> for GroupQuery {
         F: Fn() -> S,
         S: Serializer,
     {
-        match self {
-            Self::Name(query) => Ok(SerializedQuery::from_path_and_query(
-                "name",
-                query.serialize_value(factory)?.into(),
-            )),
-            Self::UserAny(user) => Ok(SerializedQuery::from_path_and_query(
-                "permissions.users",
-                QueryElement::ElemMatch(SerializedQuery::from_path_and_query(
-                    "0",
-                    SimpleQuery::eq(user.serialize(factory())?).into(),
-                )),
-            )),
-            Self::UserPerm(user, access) => Ok(SerializedQuery::from_path_and_query(
-                "permissions.users",
-                QueryElement::ElemMatch(SerializedQuery::from_path_queries([
-                    ("0", SimpleQuery::eq(user.serialize(factory())?).into()),
-                    ("1", access.serialize_value(factory)?.into()),
-                ])),
-            )),
-        }
+        let name_query = self
+            .name
+            .as_ref()
+            .map(|query| {
+                Ok(SerializedQuery::from_path_and_query(
+                    "name",
+                    query.serialize_value(factory)?.into(),
+                ))
+            })
+            .transpose()?;
+        let user_any_query = self
+            .user_any
+            .as_ref()
+            .map(|users| {
+                Ok(SerializedQuery::from_path_and_query(
+                    "permissions.users",
+                    QueryElement::ElemMatch(SerializedQuery::from_path_and_query(
+                        "0",
+                        QueryElement::In(
+                            users
+                                .iter()
+                                .map(|user| user.serialize(factory()))
+                                .collect::<Result<_, _>>()?,
+                        ),
+                    )),
+                ))
+            })
+            .transpose()?;
+        let user_perm_query = self
+            .user_perm
+            .as_ref()
+            .map(|(user, access)| {
+                Ok(SerializedQuery::from_path_and_query(
+                    "permissions.users",
+                    QueryElement::ElemMatch(SerializedQuery::from_path_queries([
+                        ("0", SimpleQuery::eq(user.serialize(factory())?).into()),
+                        ("1", access.serialize_value(factory)?.into()),
+                    ])),
+                ))
+            })
+            .transpose()?;
+
+        Ok(SerializedQuery::all_opt([
+            name_query,
+            user_any_query,
+            user_perm_query,
+        ]))
     }
 }
 
