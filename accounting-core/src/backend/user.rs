@@ -28,11 +28,14 @@ impl Queryable for Group {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum GroupQuery {
+    // { "name": { op: value }}
     Name(SimpleQuery<String>),
     /// Queries whether the user has any permissions specified, including `None`
+    // { "permissions.users.0": value }
     UserAny(Id<User>),
     /// Queries whether the specified user has the specified permission
-    UserPerm(Id<User>, AccessLevel),
+    // { "permissions.users": { "$elemMatch": { "0": id, "1": { op: value } }
+    UserPerm(Id<User>, SimpleQuery<AccessLevel>),
 }
 
 impl QueryParameter<Group> for GroupQuery {
@@ -40,7 +43,7 @@ impl QueryParameter<Group> for GroupQuery {
         match self {
             Self::Name(query) => query.matches(&group.name),
             Self::UserAny(user) => group.permissions.users.contains_key(user),
-            Self::UserPerm(user, access) => group.permissions.get(*user) == *access,
+            Self::UserPerm(user, access) => access.matches(&group.permissions.get(*user)),
         }
     }
 
@@ -130,3 +133,46 @@ pub enum AccessLevel {
 pub trait ChangeGroup {}
 
 impl ChangeGroup for Group {}
+
+#[cfg(test)]
+mod tests {
+    use super::{AccessLevel, GroupQuery};
+    use crate::backend::{
+        id::Id,
+        query::{Comparator, QueryParameter, SimpleQuery},
+    };
+
+    #[test]
+    fn serialize_query() {
+        let query = GroupQuery::UserPerm(
+            Id::new(1234),
+            SimpleQuery(
+                [(Comparator::GreaterOrEqual, AccessLevel::Read)]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+
+        let serialized_query = query
+            .serialize_query(|| serde_json::value::Serializer)
+            .unwrap();
+        let serialized = serde_json::to_value(&serialized_query).unwrap();
+
+        let expected = serde_json::json!({
+            "amounts": {
+                "$and": [
+                    { "0": 1234 },
+                    { "1": { "$gt": "0" } },
+                ],
+            }
+        });
+        assert!(
+            serialized == expected,
+            r#"assertion failed: `(left == right)`
+  left: {:#},
+ right: {:#}"#,
+            serialized,
+            expected
+        );
+    }
+}

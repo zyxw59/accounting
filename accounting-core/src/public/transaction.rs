@@ -25,8 +25,10 @@ impl Queryable for Transaction {
 pub enum TransactionQuery {
     Date(SimpleQuery<Date>),
     Description(SimpleQuery<String>),
+    // { "amounts.0": id }
     /// The transaction involves the specified account
     Account(Id<Account>),
+    // { "amounts": { "$elemMatch" : {"0": id, "1": query} }
     AccountAmount(Id<Account>, SimpleQuery<Amount>),
 }
 
