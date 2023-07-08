@@ -2,7 +2,7 @@ use accounting_core::{
     backend::{
         collection::Collection,
         id::Id,
-        query::{Query, Queryable},
+        query::{GroupQuery, Query, Queryable},
         user::{ChangeGroup, Group, WithGroup},
         version::{Version, Versioned},
     },
@@ -98,7 +98,7 @@ where
         Ok(())
     }
 
-    async fn query_count(&self, query: Query<T>) -> Result<usize>
+    async fn query_count(&self, query: GroupQuery<T>) -> Result<usize>
     where
         T: Queryable,
     {
@@ -112,12 +112,12 @@ where
     }
 }
 
-fn query_to_document<T>(query: Query<T>) -> Result<bson::Document>
+fn query_to_document<T>(query: GroupQuery<T>) -> Result<bson::Document>
 where
     T: Queryable,
 {
     query
-        .serialize_query(bson_serializer)
+        .serialize_query(&bson_serializer)
         .and_then(|query| to_bson_document(&query))
         .map_err(Error::backend)
 }

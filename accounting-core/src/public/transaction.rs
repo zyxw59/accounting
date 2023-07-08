@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use crate::{
     backend::{
         id::Id,
-        query::{QueryElement, QueryParameter, Queryable, SerializedQuery, SimpleQuery},
+        query::{Query, QueryElement, Queryable, SerializedQuery, SimpleQuery},
     },
     date::Date,
     map::Map,
@@ -32,7 +32,7 @@ pub enum TransactionQuery {
     AccountAmount(Id<Account>, SimpleQuery<Amount>),
 }
 
-impl QueryParameter<Transaction> for TransactionQuery {
+impl Query<Transaction> for TransactionQuery {
     fn matches(&self, transaction: &Transaction) -> bool {
         match self {
             Self::Date(query) => query.matches(&transaction.date),
@@ -44,7 +44,7 @@ impl QueryParameter<Transaction> for TransactionQuery {
         }
     }
 
-    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
+    fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
         F: Fn() -> S,
         S: Serializer,

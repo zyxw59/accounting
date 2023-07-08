@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::backend::query::{QueryParameter, Queryable, SerializedQuery, SimpleQuery};
+use crate::backend::query::{Query, Queryable, SerializedQuery, SimpleQuery};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Account {
@@ -18,7 +18,7 @@ pub enum AccountQuery {
     Description(SimpleQuery<String>),
 }
 
-impl QueryParameter<Account> for AccountQuery {
+impl Query<Account> for AccountQuery {
     fn matches(&self, account: &Account) -> bool {
         match self {
             Self::Name(query) => query.matches(&account.name),
@@ -26,7 +26,7 @@ impl QueryParameter<Account> for AccountQuery {
         }
     }
 
-    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
+    fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
         F: Fn() -> S,
         S: Serializer,

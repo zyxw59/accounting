@@ -4,7 +4,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use crate::{
     backend::{
         id::Id,
-        query::{QueryElement, QueryParameter, Queryable, SerializedQuery, SimpleQuery},
+        query::{Query, QueryElement, Queryable, SerializedQuery, SimpleQuery},
         version::Versioned,
     },
     map::Map,
@@ -38,7 +38,7 @@ pub enum GroupQuery {
     UserPerm(Id<User>, SimpleQuery<AccessLevel>),
 }
 
-impl QueryParameter<Group> for GroupQuery {
+impl Query<Group> for GroupQuery {
     fn matches(&self, group: &Group) -> bool {
         match self {
             Self::Name(query) => query.matches(&group.name),
@@ -47,7 +47,7 @@ impl QueryParameter<Group> for GroupQuery {
         }
     }
 
-    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
+    fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
         F: Fn() -> S,
         S: Serializer,

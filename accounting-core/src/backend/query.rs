@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap, ops};
+use std::{borrow::Cow, collections::BTreeMap};
 
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -7,135 +7,21 @@ use crate::backend::{
     user::{Group, WithGroup},
 };
 
-pub struct Query<T: Queryable> {
-    expr: BooleanExpr<GroupQuery<T>>,
-}
+pub mod boolean;
 
-impl<T: Queryable> Query<T> {
-    pub fn new(query: GroupQuery<T>) -> Self {
-        Self {
-            expr: BooleanExpr::Value(query),
-        }
-    }
-
-    pub fn and(self, other: Self) -> Self {
-        Self {
-            expr: self.expr.and(other.expr),
-        }
-    }
-
-    pub fn or(self, other: Self) -> Self {
-        Self {
-            expr: self.expr.or(other.expr),
-        }
-    }
-
-    pub fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
-    where
-        F: Fn() -> S,
-        S: Serializer,
-    {
-        todo!();
-    }
-}
-
-impl<T: Queryable> ops::Not for Query<T> {
-    type Output = Self;
-
-    fn not(self) -> Self {
-        Self {
-            expr: self.expr.not(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-enum BooleanExpr<T> {
-    Value(T),
-    Not(Box<Self>),
-    Any(Vec<Self>),
-    All(Vec<Self>),
-}
-
-impl<T> BooleanExpr<T> {
-    fn and(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::All(mut a), Self::All(mut b)) => {
-                a.append(&mut b);
-                Self::All(a)
-            }
-            (Self::All(mut a), other) | (other, Self::All(mut a)) => {
-                a.push(other);
-                Self::All(a)
-            }
-            (a, b) => Self::All(vec![a, b]),
-        }
-    }
-
-    fn or(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Any(mut a), Self::Any(mut b)) => {
-                a.append(&mut b);
-                Self::Any(a)
-            }
-            (Self::Any(mut a), other) | (other, Self::Any(mut a)) => {
-                a.push(other);
-                Self::Any(a)
-            }
-            (a, b) => Self::Any(vec![a, b]),
-        }
-    }
-
-    fn try_fold<U, E>(
-        &self,
-        all_f: &impl Fn(Vec<U>) -> Result<U, E>,
-        any_f: &impl Fn(Vec<U>) -> Result<U, E>,
-        not_f: &impl Fn(U) -> Result<U, E>,
-        f: &impl Fn(&T) -> Result<U, E>,
-    ) -> Result<U, E> {
-        match self {
-            BooleanExpr::All(clauses) => {
-                let clauses = clauses
-                    .iter()
-                    .map(|expr| expr.try_fold(all_f, any_f, not_f, f))
-                    .collect::<Result<_, E>>()?;
-                all_f(clauses)
-            }
-            BooleanExpr::Any(clauses) => {
-                let clauses = clauses
-                    .iter()
-                    .map(|expr| expr.try_fold(all_f, any_f, not_f, f))
-                    .collect::<Result<_, E>>()?;
-                any_f(clauses)
-            }
-            BooleanExpr::Not(expr) => not_f(expr.try_fold(all_f, any_f, not_f, f)?),
-            BooleanExpr::Value(value) => f(value),
-        }
-    }
-}
-
-impl<T> ops::Not for BooleanExpr<T> {
-    type Output = Self;
-
-    fn not(self) -> Self {
-        match self {
-            Self::Not(a) => *a,
-            a => Self::Not(Box::new(a)),
-        }
-    }
-}
+pub use boolean::BooleanExpr;
 
 pub trait Queryable: Sized {
-    type Query: QueryParameter<Self> + Send;
+    type Query: Query<Self> + Send;
 }
 
-pub trait QueryParameter<T> {
+pub trait Query<T> {
     /// Whether the object matches this query.
     fn matches(&self, object: &T) -> bool;
 
     /// Partially serialize the query, using the provided serializer factory to serialize the query
     /// values.
-    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
+    fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
         F: Fn() -> S,
         S: Serializer;
@@ -205,7 +91,7 @@ pub enum GroupQuery<T: Queryable> {
     Other(T::Query),
 }
 
-impl<T> QueryParameter<WithGroup<T>> for GroupQuery<T>
+impl<T> Query<WithGroup<T>> for GroupQuery<T>
 where
     T: Queryable,
 {
@@ -216,7 +102,7 @@ where
         }
     }
 
-    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
+    fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
     where
         F: Fn() -> S,
         S: Serializer,
