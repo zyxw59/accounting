@@ -35,12 +35,7 @@ impl<T: Queryable> Query<T> {
         F: Fn() -> S,
         S: Serializer,
     {
-        self.expr.try_fold(
-            &|clauses| Ok(SerializedQuery::Boolean(BooleanLayer::And(clauses))),
-            &|clauses| Ok(SerializedQuery::Boolean(BooleanLayer::Or(clauses))),
-            &|expr| Ok(SerializedQuery::Boolean(BooleanLayer::Not(Box::new(expr)))),
-            &|query| query.serialize_query(&factory),
-        )
+        todo!();
     }
 }
 
@@ -54,6 +49,7 @@ impl<T: Queryable> ops::Not for Query<T> {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 enum BooleanExpr<T> {
     Value(T),
     Not(Box<Self>),
@@ -165,11 +161,17 @@ pub enum Comparator {
 #[serde(transparent)]
 pub struct SimpleQuery<T>(pub BTreeMap<Comparator, T>);
 
-impl<T> QueryParameter<T> for SimpleQuery<T>
+impl<T> SimpleQuery<T> {
+    pub fn eq(value: T) -> Self {
+        Self([(Comparator::Equal, value)].into_iter().collect())
+    }
+}
+
+impl<T> SimpleQuery<T>
 where
     T: Ord + Serialize + Send,
 {
-    fn matches(&self, object: &T) -> bool {
+    pub fn matches(&self, object: &T) -> bool {
         self.0.iter().all(|(op, value)| match op {
             Comparator::Equal => object == value,
             Comparator::NotEqual => object != value,
@@ -180,7 +182,7 @@ where
         })
     }
 
-    fn serialize_query<F, S>(&self, factory: F) -> Result<SerializedQuery<S::Ok>, S::Error>
+    pub fn serialize_value<F, S>(&self, factory: F) -> Result<SimpleQuery<S::Ok>, S::Error>
     where
         F: Fn() -> S,
         S: Serializer,
@@ -189,7 +191,7 @@ where
             .iter()
             .map(|(op, value)| Ok((*op, value.serialize(factory())?)))
             .collect::<Result<_, _>>()
-            .map(SerializedQuery::Comparator)
+            .map(SimpleQuery)
     }
 }
 
@@ -222,7 +224,7 @@ where
         match self {
             Self::Group { group } => Ok(SerializedQuery::from_path_and_query(
                 "_group",
-                SerializedQuery::from_value(group, factory)?,
+                SimpleQuery::eq(group.serialize(factory())?).into(),
             )),
             Self::Other(query) => query.serialize_query(factory),
         }
@@ -231,74 +233,44 @@ where
 
 /// A query with the structure preserved, but the query values replaced by their serialized forms.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SerializedQuery<T> {
-    Boolean(BooleanLayer<SerializedQuery<T>>),
-    Comparator(BTreeMap<Comparator, T>),
-    Paths(BTreeMap<Cow<'static, str>, SerializedQuery<T>>),
-    Value(T),
+pub struct SerializedQuery<T> {
+    expr: BooleanExpr<BTreeMap<Cow<'static, str>, QueryElement<T>>>,
 }
 
 impl<T> SerializedQuery<T> {
-    pub fn from_path_and_query(path: impl IntoPath, mut query: Self) -> Self {
-        for field in path.into_path().rev() {
-            let map = [(Cow::Borrowed(field), query)].into_iter().collect();
-            query = SerializedQuery::Paths(map);
-        }
-        query
+    pub(crate) fn from_path_and_query(path: &'static str, query: QueryElement<T>) -> Self {
+        Self::from_path_queries([(path, query)])
     }
 
-    pub fn from_value<S, V>(value: V, factory: impl Fn() -> S) -> Result<Self, S::Error>
-    where
-        S: Serializer<Ok = T>,
-        V: Serialize,
-    {
-        value.serialize(factory()).map(Self::Value)
-    }
-
-    pub fn and(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Boolean(BooleanLayer::And(mut a)), Self::Boolean(BooleanLayer::And(mut b))) => {
-                a.append(&mut b);
-                Self::Boolean(BooleanLayer::And(a))
-            }
-            (Self::Boolean(BooleanLayer::And(mut a)), b)
-            | (b, Self::Boolean(BooleanLayer::And(mut a))) => {
-                a.push(b);
-                Self::Boolean(BooleanLayer::And(a))
-            }
-            (a, b) => Self::Boolean(BooleanLayer::And(vec![a, b])),
+    pub(crate) fn from_path_queries(
+        queries: impl IntoIterator<Item = (&'static str, QueryElement<T>)>,
+    ) -> Self {
+        Self {
+            expr: BooleanExpr::Value(
+                queries
+                    .into_iter()
+                    .map(|(path, query)| (Cow::Borrowed(path), query))
+                    .collect(),
+            ),
         }
     }
-}
 
-pub trait IntoPath {
-    type PathIter: DoubleEndedIterator<Item = &'static str>;
-    fn into_path(self) -> Self::PathIter;
-}
-
-impl IntoPath for &'static str {
-    type PathIter = std::iter::Once<&'static str>;
-
-    fn into_path(self) -> Self::PathIter {
-        std::iter::once(self)
-    }
-}
-
-impl<const N: usize> IntoPath for [&'static str; N] {
-    type PathIter = std::array::IntoIter<&'static str, N>;
-
-    fn into_path(self) -> Self::PathIter {
-        self.into_iter()
+    pub(crate) fn and(self, other: Self) -> Self {
+        Self {
+            expr: self.expr.and(other.expr),
+        }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BooleanLayer<T> {
-    #[serde(rename = "$not")]
-    Not(Box<T>),
-    #[serde(rename = "$or")]
-    Or(Vec<T>),
-    #[serde(rename = "$and")]
-    And(Vec<T>),
+pub enum QueryElement<T> {
+    ElemMatch(SerializedQuery<T>),
+    Comparator(SimpleQuery<T>),
+    Not(Box<QueryElement<T>>),
+}
+
+impl<T> From<SimpleQuery<T>> for QueryElement<T> {
+    fn from(query: SimpleQuery<T>) -> Self {
+        Self::Comparator(query)
+    }
 }

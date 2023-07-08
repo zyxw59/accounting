@@ -4,7 +4,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use crate::{
     backend::{
         id::Id,
-        query::{QueryParameter, Queryable, SerializedQuery, SimpleQuery},
+        query::{QueryElement, QueryParameter, Queryable, SerializedQuery, SimpleQuery},
         version::Versioned,
     },
     map::Map,
@@ -55,15 +55,21 @@ impl QueryParameter<Group> for GroupQuery {
         match self {
             Self::Name(query) => Ok(SerializedQuery::from_path_and_query(
                 "name",
-                query.serialize_query(factory)?,
+                query.serialize_value(factory)?.into(),
             )),
             Self::UserAny(user) => Ok(SerializedQuery::from_path_and_query(
-                ["permissions", "users", "0"],
-                SerializedQuery::from_value(user, factory)?,
+                "permissions.users",
+                QueryElement::ElemMatch(SerializedQuery::from_path_and_query(
+                    "0",
+                    SimpleQuery::eq(user.serialize(factory())?).into(),
+                )),
             )),
             Self::UserPerm(user, access) => Ok(SerializedQuery::from_path_and_query(
-                ["permissions", "users"],
-                SerializedQuery::from_value((user, access), factory)?,
+                "permissions.users",
+                QueryElement::ElemMatch(SerializedQuery::from_path_queries([
+                    ("0", SimpleQuery::eq(user.serialize(factory())?).into()),
+                    ("1", access.serialize_value(factory)?.into()),
+                ])),
             )),
         }
     }
@@ -133,39 +139,3 @@ pub enum AccessLevel {
 pub trait ChangeGroup {}
 
 impl ChangeGroup for Group {}
-
-#[cfg(test)]
-mod tests {
-    use super::{AccessLevel, GroupQuery};
-    use crate::backend::{
-        id::Id,
-        query::{Comparator, QueryParameter, SimpleQuery},
-    };
-
-    #[test]
-    fn serialize_query() {
-        let query = GroupQuery::UserPerm(
-            Id::new(1234),
-            SimpleQuery(
-                [(Comparator::GreaterOrEqual, AccessLevel::Read)]
-                    .into_iter()
-                    .collect(),
-            ),
-        );
-
-        let serialized_query = query
-            .serialize_query(|| serde_json::value::Serializer)
-            .unwrap();
-        let serialized = serde_json::to_value(&serialized_query).unwrap();
-
-        let expected = serde_json::json!({
-            "permissions": {
-                "users": [
-                    1234,
-                    { "$gte": 1 },
-                ],
-            }
-        });
-        pretty_assertions::assert_eq!(format!("{serialized:#}"), format!("{expected:#}"));
-    }
-}

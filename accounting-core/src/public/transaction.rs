@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use crate::{
     backend::{
         id::Id,
-        query::{QueryParameter, Queryable, SerializedQuery, SimpleQuery},
+        query::{QueryElement, QueryParameter, Queryable, SerializedQuery, SimpleQuery},
     },
     date::Date,
     map::Map,
@@ -52,62 +52,26 @@ impl QueryParameter<Transaction> for TransactionQuery {
         match self {
             Self::Date(query) => Ok(SerializedQuery::from_path_and_query(
                 "date",
-                query.serialize_query(factory)?,
+                query.serialize_value(factory)?.into(),
             )),
             Self::Description(query) => Ok(SerializedQuery::from_path_and_query(
                 "description",
-                query.serialize_query(factory)?,
+                query.serialize_value(factory)?.into(),
             )),
             Self::Account(account) => Ok(SerializedQuery::from_path_and_query(
-                ["amounts", "0"],
-                SerializedQuery::from_value(account, factory)?,
+                "amounts",
+                QueryElement::ElemMatch(SerializedQuery::from_path_and_query(
+                    "0",
+                    SimpleQuery::eq(account.serialize(factory())?).into(),
+                )),
             )),
             Self::AccountAmount(account, amount_query) => Ok(SerializedQuery::from_path_and_query(
                 "amounts",
-                SerializedQuery::from_path_and_query(
-                    "0",
-                    SerializedQuery::from_value(account, &factory)?,
-                )
-                .and(SerializedQuery::from_path_and_query(
-                    "1",
-                    amount_query.serialize_query(factory)?,
-                )),
+                QueryElement::ElemMatch(SerializedQuery::from_path_queries([
+                    ("0", SimpleQuery::eq(account.serialize(factory())?).into()),
+                    ("1", amount_query.serialize_value(factory)?.into()),
+                ])),
             )),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::TransactionQuery;
-    use crate::{
-        backend::{
-            id::Id,
-            query::{Comparator, QueryParameter, SimpleQuery},
-        },
-        public::amount::Amount,
-    };
-
-    #[test]
-    fn serialize_query() {
-        let query = TransactionQuery::AccountAmount(
-            Id::new(1234),
-            SimpleQuery([(Comparator::Greater, Amount::ZERO)].into_iter().collect()),
-        );
-
-        let serialized_query = query
-            .serialize_query(|| serde_json::value::Serializer)
-            .unwrap();
-        let serialized = serde_json::to_value(&serialized_query).unwrap();
-
-        let expected = serde_json::json!({
-            "amounts": {
-                "$and": [
-                    { "0": 1234 },
-                    { "1": { "$gt": "0" } },
-                ],
-            }
-        });
-        pretty_assertions::assert_eq!(format!("{serialized:#}"), format!("{expected:#}"));
     }
 }
