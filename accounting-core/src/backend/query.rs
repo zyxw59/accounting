@@ -134,10 +134,12 @@ where
     }
 }
 
+pub type QueryPathMap<T> = BTreeMap<Cow<'static, str>, QueryElement<T>>;
+
 /// A query with the structure preserved, but the query values replaced by their serialized forms.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SerializedQuery<T> {
-    expr: BooleanExpr<BTreeMap<Cow<'static, str>, QueryElement<T>>>,
+    expr: BooleanExpr<QueryPathMap<T>>,
 }
 
 impl<T> SerializedQuery<T> {
@@ -172,6 +174,13 @@ impl<T> SerializedQuery<T> {
         Self {
             expr: self.expr.and(other.expr),
         }
+    }
+
+    pub fn try_fold_expr<U, E>(
+        &self,
+        folder: &impl boolean::TryFoldBoolean<QueryPathMap<T>, U, E>,
+    ) -> Result<U, E> {
+        self.expr.try_fold(folder)
     }
 }
 

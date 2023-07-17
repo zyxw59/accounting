@@ -2,7 +2,7 @@ use accounting_core::{
     backend::{
         collection::Collection,
         id::Id,
-        query::{GroupQuery, Query, Queryable},
+        query::{GroupQuery, Query, Queryable, SerializedQuery},
         user::{ChangeGroup, Group, WithGroup},
         version::{Version, Versioned},
     },
@@ -116,10 +116,51 @@ fn query_to_document<T>(query: GroupQuery<T>) -> Result<bson::Document>
 where
     T: Queryable,
 {
-    query
+    let query = query
         .serialize_query(&bson_serializer)
-        .and_then(|query| to_bson_document(&query))
-        .map_err(Error::backend)
+        .map_err(Error::backend)?;
+    serialized_query_to_document(&query)
+}
+
+fn serialized_query_to_document(query: &SerializedQuery<bson::Bson>) -> Result<bson::Document> {
+    use accounting_core::backend::query::{boolean::Folder, QueryElement, QueryPathMap};
+
+    fn all_f(clauses: Vec<bson::Document>) -> Result<bson::Document> {
+        Ok(bson::doc! { "$and": clauses })
+    }
+
+    fn any_f(clauses: Vec<bson::Document>) -> Result<bson::Document> {
+        Ok(bson::doc! { "$or": clauses })
+    }
+
+    fn not_f(expr: bson::Document) -> Result<bson::Document> {
+        Ok(bson::doc! { "$nor": [expr] })
+    }
+
+    fn query_element_to_bson(element: &QueryElement<bson::Bson>) -> Result<bson::Bson> {
+        match element {
+            QueryElement::ElemMatch(query) => {
+                Ok(bson::bson!({ "$elemMatch": serialized_query_to_document(query)? }))
+            }
+            QueryElement::Comparator(query) => bson::to_bson(query).map_err(Error::backend),
+            QueryElement::In(set) => Ok(bson::bson!({ "$in": set })),
+            QueryElement::Not(query) => Ok(bson::bson!({ "$not": query_element_to_bson(query)? })),
+        }
+    }
+
+    fn value_f(map: &QueryPathMap<bson::Bson>) -> Result<bson::Document> {
+        map.iter()
+            .map(|(k, v)| Ok((k.clone().into_owned(), query_element_to_bson(v)?)))
+            .collect()
+    }
+
+    let folder = Folder {
+        all_f,
+        any_f,
+        not_f,
+        value_f,
+    };
+    query.try_fold_expr(&folder)
 }
 
 /// Default BSON serializer options, except the `human_readable` flag is set to false, to ensure
@@ -128,10 +169,6 @@ fn bson_serializer_options() -> bson::SerializerOptions {
     bson::SerializerOptions::builder()
         .human_readable(false)
         .build()
-}
-
-fn to_bson_document<T: Serialize>(value: &T) -> Result<bson::Document, bson::ser::Error> {
-    bson::to_document_with_options(value, bson_serializer_options())
 }
 
 fn bson_serializer() -> bson::Serializer {
@@ -148,4 +185,48 @@ fn query_id<T>(id: Id<T>) -> bson::Document {
 
 fn query_id_version<T>(id: Id<T>, version: Version) -> bson::Document {
     bson::doc! { ID_FIELD: id, VERSION_FIELD: version }
+}
+
+#[cfg(test)]
+mod tests {
+    use accounting_core::{
+        backend::{
+            id::Id,
+            query::{Comparator, GroupQuery, SimpleQuery},
+        },
+        public::{
+            amount::Amount,
+            transaction::{Transaction, TransactionQuery},
+        },
+    };
+    use pretty_assertions::assert_eq;
+
+    use super::{query_to_document, Result};
+
+    #[test]
+    fn query_transaction() -> Result<()> {
+        let query: GroupQuery<Transaction> = GroupQuery {
+            group: None,
+            other: Some(TransactionQuery {
+                description: Some(SimpleQuery::eq("test transaction".into())),
+                date: None,
+                account: Some(vec![Id::new(123)]),
+                account_amount: Some((
+                    Id::new(456),
+                    SimpleQuery([(Comparator::Greater, Amount::ZERO)].into_iter().collect()),
+                )),
+            }),
+        };
+        // serialize to json for nicer formatting
+        let actual = serde_json::to_string_pretty(&query_to_document(query)?).unwrap();
+        let expected = serde_json::json!({
+            "$and": [
+                {"description": { "$eq": "test transaction" }},
+                {"amounts": { "$elemMatch": { "0": { "$in": [123] }}}},
+                {"amounts": { "$elemMatch": { "0": { "$eq": 456 }, "1": { "$gt": "0" }}}},
+            ],
+        });
+        assert_eq!(actual, format!("{expected:#}"));
+        Ok(())
+    }
 }
