@@ -123,18 +123,27 @@ where
 }
 
 fn serialized_query_to_document(query: &SerializedQuery<bson::Bson>) -> Result<bson::Document> {
-    use accounting_core::backend::query::{boolean::Folder, QueryElement, QueryPathMap};
+    use accounting_core::backend::query::{boolean::TryFoldBoolean, QueryElement, QueryPathMap};
 
-    fn all_f(clauses: Vec<bson::Document>) -> Result<bson::Document> {
-        Ok(bson::doc! { "$and": clauses })
-    }
+    struct Folder;
+    impl TryFoldBoolean<QueryPathMap<bson::Bson>, bson::Document, Error> for Folder {
+        fn map_all(&self, clauses: Vec<bson::Document>) -> Result<bson::Document> {
+            Ok(bson::doc! { "$and": clauses })
+        }
 
-    fn any_f(clauses: Vec<bson::Document>) -> Result<bson::Document> {
-        Ok(bson::doc! { "$or": clauses })
-    }
+        fn map_any(&self, clauses: Vec<bson::Document>) -> Result<bson::Document> {
+            Ok(bson::doc! { "$or": clauses })
+        }
 
-    fn not_f(expr: bson::Document) -> Result<bson::Document> {
-        Ok(bson::doc! { "$nor": [expr] })
+        fn map_not(&self, expr: bson::Document) -> Result<bson::Document> {
+            Ok(bson::doc! { "$nor": [expr] })
+        }
+
+        fn map_value(&self, map: &QueryPathMap<bson::Bson>) -> Result<bson::Document> {
+            map.iter()
+                .map(|(k, v)| Ok((k.clone().into_owned(), query_element_to_bson(v)?)))
+                .collect()
+        }
     }
 
     fn query_element_to_bson(element: &QueryElement<bson::Bson>) -> Result<bson::Bson> {
@@ -148,19 +157,7 @@ fn serialized_query_to_document(query: &SerializedQuery<bson::Bson>) -> Result<b
         }
     }
 
-    fn value_f(map: &QueryPathMap<bson::Bson>) -> Result<bson::Document> {
-        map.iter()
-            .map(|(k, v)| Ok((k.clone().into_owned(), query_element_to_bson(v)?)))
-            .collect()
-    }
-
-    let folder = Folder {
-        all_f,
-        any_f,
-        not_f,
-        value_f,
-    };
-    query.try_fold_expr(&folder)
+    query.try_fold_expr(&Folder)
 }
 
 /// Default BSON serializer options, except the `human_readable` flag is set to false, to ensure
