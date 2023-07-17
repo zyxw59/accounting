@@ -31,8 +31,8 @@ impl<T> Id<T> {
         rand::random()
     }
 
-    #[cfg(test)]
-    pub(crate) fn new(id: u64) -> Self {
+    /// Generate a new `Id` with the specified value
+    pub fn new(id: u64) -> Self {
         Self {
             id,
             _marker: PhantomData,
