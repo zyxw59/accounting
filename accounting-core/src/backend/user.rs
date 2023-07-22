@@ -4,7 +4,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use crate::{
     backend::{
         id::Id,
-        query::{Query, Queryable, RawQuery, SimpleQuery, ToValue, Value},
+        query::{Query, Queryable, RawQuery, SimpleQuery, ToValue},
         version::Versioned,
     },
     map::Map,
@@ -58,7 +58,8 @@ impl Query<Group> for GroupQuery {
                     SimpleQuery {
                         in_: Some(users.iter().map(ToValue::to_value).collect()),
                         ..Default::default()
-                    },
+                    }
+                    .into(),
                 )],
             ),
             Self::UserPerm(user, permissions) => RawQuery::complex(
@@ -69,7 +70,8 @@ impl Query<Group> for GroupQuery {
                         SimpleQuery {
                             eq: Some(user.to_value()),
                             ..Default::default()
-                        },
+                        }
+                        .into(),
                     ),
                     ("access", permissions.to_value_query()),
                 ],
@@ -139,8 +141,10 @@ pub enum AccessLevel {
 }
 
 impl ToValue for AccessLevel {
-    fn to_value(&self) -> Value {
-        Value::Integer(*self as i32)
+    type Value<'a> = i32;
+
+    fn to_value(&self) -> Self::Value<'_> {
+        *self as i32
     }
 }
 

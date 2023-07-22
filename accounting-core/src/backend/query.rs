@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub trait Queryable: Sized {
-    type Query: Query<Self> + Send;
+    type Query: Query<Self> + Send + Sync;
 }
 
 pub trait Query<T> {
@@ -29,19 +29,19 @@ pub enum RawQuery<'a> {
         /// Name of the search parameter
         parameter: &'static str,
         /// Value(s) to search for
-        query: Box<SimpleQuery<Value<'a>>>,
+        query: Box<SimpleValueQuery<'a>>,
     },
     /// Query of a search parameter with multiple values
     Complex {
         /// Name of the search parameter
         parameter: &'static str,
         /// Values to search for in each value of the seach parameter
-        queries: BTreeMap<&'static str, SimpleQuery<Value<'a>>>,
+        queries: BTreeMap<&'static str, SimpleValueQuery<'a>>,
     },
 }
 
 impl<'a> RawQuery<'a> {
-    pub fn simple(parameter: &'static str, query: SimpleQuery<Value<'a>>) -> Self {
+    pub fn simple(parameter: &'static str, query: SimpleValueQuery<'a>) -> Self {
         Self::Simple {
             parameter,
             query: Box::new(query),
@@ -50,7 +50,7 @@ impl<'a> RawQuery<'a> {
 
     pub fn complex<I>(parameter: &'static str, queries: I) -> Self
     where
-        I: IntoIterator<Item = (&'static str, SimpleQuery<Value<'a>>)>,
+        I: IntoIterator<Item = (&'static str, SimpleValueQuery<'a>)>,
     {
         Self::Complex {
             parameter,
@@ -59,51 +59,77 @@ impl<'a> RawQuery<'a> {
     }
 }
 
-pub enum Value<'a> {
-    String(Cow<'a, str>),
-    Id(Id<()>),
-    Integer(i32),
-    Amount(Amount),
-    Date(Date),
+pub trait Value<'a>: Sized {
+    fn to_value_query(query: SimpleQuery<Self>) -> SimpleValueQuery<'a>;
 }
 
-pub trait ToValue {
-    fn to_value(&self) -> Value;
-}
-
-impl ToValue for str {
-    fn to_value(&self) -> Value {
-        Value::String(Cow::Borrowed(self))
+impl<'a> Value<'a> for Cow<'a, str> {
+    fn to_value_query(query: SimpleQuery<Self>) -> SimpleValueQuery<'a> {
+        SimpleValueQuery::String(query)
     }
 }
 
+impl<'a> Value<'a> for Id<()> {
+    fn to_value_query(query: SimpleQuery<Self>) -> SimpleValueQuery<'a> {
+        SimpleValueQuery::Id(query)
+    }
+}
+
+impl<'a> Value<'a> for i32 {
+    fn to_value_query(query: SimpleQuery<Self>) -> SimpleValueQuery<'a> {
+        SimpleValueQuery::Integer(query)
+    }
+}
+
+impl<'a> Value<'a> for Amount {
+    fn to_value_query(query: SimpleQuery<Self>) -> SimpleValueQuery<'a> {
+        SimpleValueQuery::Amount(query)
+    }
+}
+
+impl<'a> Value<'a> for Date {
+    fn to_value_query(query: SimpleQuery<Self>) -> SimpleValueQuery<'a> {
+        SimpleValueQuery::Date(query)
+    }
+}
+
+pub trait ToValue {
+    type Value<'a>: Value<'a>
+    where
+        Self: 'a;
+
+    fn to_value(&self) -> Self::Value<'_>;
+}
+
 impl ToValue for String {
-    fn to_value(&self) -> Value {
-        Value::String(Cow::Borrowed(self))
+    type Value<'a> = Cow<'a, str>;
+
+    fn to_value(&self) -> Self::Value<'_> {
+        Cow::Borrowed(self)
     }
 }
 
 impl<T> ToValue for Id<T> {
-    fn to_value(&self) -> Value {
-        Value::Id(self.transmute())
-    }
-}
+    type Value<'a> = Id<()> where T: 'a;
 
-impl ToValue for i32 {
-    fn to_value(&self) -> Value {
-        Value::Integer(*self)
-    }
-}
-
-impl ToValue for Amount {
-    fn to_value(&self) -> Value {
-        Value::Amount(*self)
+    fn to_value(&self) -> Self::Value<'_> {
+        self.transmute()
     }
 }
 
 impl ToValue for Date {
-    fn to_value(&self) -> Value {
-        Value::Date(*self)
+    type Value<'a> = Date;
+
+    fn to_value(&self) -> Self::Value<'_> {
+        *self
+    }
+}
+
+impl ToValue for Amount {
+    type Value<'a> = Amount;
+
+    fn to_value(&self) -> Self::Value<'_> {
+        *self
     }
 }
 
@@ -125,6 +151,41 @@ impl<T> SimpleQuery<T> {
         Self {
             eq: Some(value),
             ..Default::default()
+        }
+    }
+}
+
+impl<T> SimpleQuery<T> {
+    pub fn map_ref<'a, F, U>(&'a self, f: F) -> SimpleQuery<U>
+    where
+        F: Fn(&'a T) -> U,
+        T: 'a,
+    {
+        SimpleQuery {
+            eq: self.eq.as_ref().map(&f),
+            ne: self.ne.as_ref().map(&f),
+            gt: self.gt.as_ref().map(&f),
+            ge: self.ge.as_ref().map(&f),
+            lt: self.lt.as_ref().map(&f),
+            le: self.le.as_ref().map(&f),
+            in_: self.in_.as_ref().map(|v| v.iter().map(&f).collect()),
+            nin: self.nin.as_ref().map(|v| v.iter().map(&f).collect()),
+        }
+    }
+
+    pub fn map<F, U>(self, f: F) -> SimpleQuery<U>
+    where
+        F: Fn(T) -> U,
+    {
+        SimpleQuery {
+            eq: self.eq.map(&f),
+            ne: self.ne.map(&f),
+            gt: self.gt.map(&f),
+            ge: self.ge.map(&f),
+            lt: self.lt.map(&f),
+            le: self.le.map(&f),
+            in_: self.in_.map(|v| v.into_iter().map(&f).collect()),
+            nin: self.nin.map(|v| v.into_iter().map(&f).collect()),
         }
     }
 }
@@ -172,24 +233,28 @@ impl<T> SimpleQuery<T>
 where
     T: ToValue,
 {
-    pub fn to_value_query(&self) -> SimpleQuery<Value> {
-        SimpleQuery {
-            eq: self.eq.as_ref().map(ToValue::to_value),
-            ne: self.ne.as_ref().map(ToValue::to_value),
-            gt: self.gt.as_ref().map(ToValue::to_value),
-            ge: self.ge.as_ref().map(ToValue::to_value),
-            lt: self.lt.as_ref().map(ToValue::to_value),
-            le: self.le.as_ref().map(ToValue::to_value),
-            in_: self
-                .in_
-                .as_ref()
-                .map(|v| v.iter().map(ToValue::to_value).collect()),
-            nin: self
-                .nin
-                .as_ref()
-                .map(|v| v.iter().map(ToValue::to_value).collect()),
-        }
+    pub fn to_value_query(&self) -> SimpleValueQuery<'_> {
+        // the closure here is to avoid a lifetime issue
+        // `T::to_value` satisfies `for<'a> F: Fn(&'a T) -> T::Value<'a>`, which requires
+        // `for<'a> T: 'a`, which we can't gurantee without `T: 'static`
+        // `|val| val.to_value()` just satisfies `F: Fn(&'a T) -> T::Value<'a>` for the specific
+        // lifetime it is called with, which doesn't impose any lifetime requirements on `T`
+        self.map_ref(|val| val.to_value()).into()
     }
+}
+
+impl<'a, T: Value<'a>> From<SimpleQuery<T>> for SimpleValueQuery<'a> {
+    fn from(query: SimpleQuery<T>) -> SimpleValueQuery<'a> {
+        T::to_value_query(query)
+    }
+}
+
+pub enum SimpleValueQuery<'a> {
+    String(SimpleQuery<Cow<'a, str>>),
+    Id(SimpleQuery<Id<()>>),
+    Integer(SimpleQuery<i32>),
+    Amount(SimpleQuery<Amount>),
+    Date(SimpleQuery<Date>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -218,9 +283,10 @@ where
             Self::Group(groups) => RawQuery::simple(
                 "_group",
                 SimpleQuery {
-                    in_: Some(groups.iter().map(ToValue::to_value).collect()),
+                    in_: Some(groups.iter().copied().map(Id::transmute).collect()),
                     ..Default::default()
-                },
+                }
+                .into(),
             ),
             Self::Other(query) => query.as_raw_query(),
         }

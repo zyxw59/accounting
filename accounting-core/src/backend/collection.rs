@@ -32,8 +32,8 @@ pub trait Collection<T> {
     where
         T: ChangeGroup;
 
-    /// Count the number of objects matching the query.
-    async fn query_count(&self, query: GroupQuery<T>) -> Result<usize>
+    /// Count the number of objects matching all the queries.
+    async fn query_count(&self, query: &[GroupQuery<T>]) -> Result<usize>
     where
         T: Queryable;
 }

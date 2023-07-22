@@ -153,7 +153,7 @@ where
         }
     }
 
-    async fn query_count(&self, query: GroupQuery<T>) -> Result<usize>
+    async fn query_count(&self, query: &[GroupQuery<T>]) -> Result<usize>
     where
         T: Queryable,
     {

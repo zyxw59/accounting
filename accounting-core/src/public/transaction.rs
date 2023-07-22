@@ -59,7 +59,8 @@ impl Query<Transaction> for TransactionQuery {
                     SimpleQuery {
                         in_: Some(accounts.iter().map(ToValue::to_value).collect()),
                         ..Default::default()
-                    },
+                    }
+                    .into(),
                 )],
             ),
             Self::AccountAmount(account, amount_query) => RawQuery::complex(
@@ -70,7 +71,8 @@ impl Query<Transaction> for TransactionQuery {
                         SimpleQuery {
                             eq: Some(account.to_value()),
                             ..Default::default()
-                        },
+                        }
+                        .into(),
                     ),
                     ("amount", amount_query.to_value_query()),
                 ],
