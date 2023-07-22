@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::{
     backend::{
         id::Id,
-        query::{Query, QueryElement, Queryable, SerializedQuery, SimpleQuery},
+        query::{Query, Queryable, RawQuery, SimpleQuery, ToValue, Value},
         version::Versioned,
     },
     map::Map,
@@ -27,89 +27,54 @@ impl Queryable for Group {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct GroupQuery {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<SimpleQuery<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_any: Option<Vec<Id<User>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_perm: Option<(Id<User>, SimpleQuery<AccessLevel>)>,
+pub enum GroupQuery {
+    Name(SimpleQuery<String>),
+    UserAny(Vec<Id<User>>),
+    UserPerm(Id<User>, SimpleQuery<AccessLevel>),
+}
+
+impl GroupQuery {
+    const USER_PERMISSIONS_PARAMETER: &'static str = "user_permissions";
 }
 
 impl Query<Group> for GroupQuery {
     fn matches(&self, group: &Group) -> bool {
-        self.name
-            .as_ref()
-            .map(|q| q.matches(&group.name))
-            .unwrap_or(true)
-            && self
-                .user_any
-                .as_ref()
-                .map(|users| {
-                    users
-                        .iter()
-                        .any(|user| group.permissions.users.contains_key(user))
-                })
-                .unwrap_or(true)
-            && self
-                .user_perm
-                .as_ref()
-                .map(|(user, q)| q.matches(&group.permissions.get(*user)))
-                .unwrap_or(true)
+        match self {
+            Self::Name(query) => query.matches(&group.name),
+            Self::UserAny(users) => users
+                .iter()
+                .any(|user| group.permissions.users.contains_key(user)),
+            Self::UserPerm(user, query) => query.matches(&group.permissions.get(*user)),
+        }
     }
 
-    fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
-    where
-        F: Fn() -> S,
-        S: Serializer,
-    {
-        let name_query = self
-            .name
-            .as_ref()
-            .map(|query| {
-                Ok(SerializedQuery::from_path_and_query(
-                    "name",
-                    query.serialize_value(factory)?.into(),
-                ))
-            })
-            .transpose()?;
-        let user_any_query = self
-            .user_any
-            .as_ref()
-            .map(|users| {
-                Ok(SerializedQuery::from_path_and_query(
-                    "permissions.users",
-                    QueryElement::ElemMatch(SerializedQuery::from_path_and_query(
-                        "0",
-                        QueryElement::In(
-                            users
-                                .iter()
-                                .map(|user| user.serialize(factory()))
-                                .collect::<Result<_, _>>()?,
-                        ),
-                    )),
-                ))
-            })
-            .transpose()?;
-        let user_perm_query = self
-            .user_perm
-            .as_ref()
-            .map(|(user, access)| {
-                Ok(SerializedQuery::from_path_and_query(
-                    "permissions.users",
-                    QueryElement::ElemMatch(SerializedQuery::from_path_queries([
-                        ("0", SimpleQuery::eq(user.serialize(factory())?).into()),
-                        ("1", access.serialize_value(factory)?.into()),
-                    ])),
-                ))
-            })
-            .transpose()?;
-
-        Ok(SerializedQuery::all_opt([
-            name_query,
-            user_any_query,
-            user_perm_query,
-        ]))
+    fn as_raw_query(&self) -> RawQuery {
+        match self {
+            Self::Name(query) => RawQuery::simple("name", query.to_value_query()),
+            Self::UserAny(users) => RawQuery::complex(
+                Self::USER_PERMISSIONS_PARAMETER,
+                [(
+                    "user",
+                    SimpleQuery {
+                        in_: Some(users.iter().map(ToValue::to_value).collect()),
+                        ..Default::default()
+                    },
+                )],
+            ),
+            Self::UserPerm(user, permissions) => RawQuery::complex(
+                Self::USER_PERMISSIONS_PARAMETER,
+                [
+                    (
+                        "user",
+                        SimpleQuery {
+                            eq: Some(user.to_value()),
+                            ..Default::default()
+                        },
+                    ),
+                    ("access", permissions.to_value_query()),
+                ],
+            ),
+        }
     }
 }
 
@@ -171,6 +136,12 @@ pub enum AccessLevel {
     Read,
     /// Read-write access
     Write,
+}
+
+impl ToValue for AccessLevel {
+    fn to_value(&self) -> Value {
+        Value::Integer(*self as i32)
+    }
 }
 
 /// Marker trait indicating that a type can be moved to a different group.

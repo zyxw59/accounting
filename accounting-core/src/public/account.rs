@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
-use crate::backend::query::{Query, Queryable, SerializedQuery, SimpleQuery};
+use crate::backend::query::{Query, Queryable, RawQuery, SimpleQuery};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Account {
@@ -13,50 +13,23 @@ impl Queryable for Account {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct AccountQuery {
-    pub name: Option<SimpleQuery<String>>,
-    pub description: Option<SimpleQuery<String>>,
+pub enum AccountQuery {
+    Name(SimpleQuery<String>),
+    Description(SimpleQuery<String>),
 }
 
 impl Query<Account> for AccountQuery {
     fn matches(&self, account: &Account) -> bool {
-        self.name
-            .as_ref()
-            .map(|q| q.matches(&account.name))
-            .unwrap_or(true)
-            && self
-                .description
-                .as_ref()
-                .map(|q| q.matches(&account.description))
-                .unwrap_or(true)
+        match self {
+            Self::Name(query) => query.matches(&account.name),
+            Self::Description(query) => query.matches(&account.description),
+        }
     }
 
-    fn serialize_query<F, S>(&self, factory: &F) -> Result<SerializedQuery<S::Ok>, S::Error>
-    where
-        F: Fn() -> S,
-        S: Serializer,
-    {
-        let name_query = self
-            .name
-            .as_ref()
-            .map(|query| {
-                Ok(SerializedQuery::from_path_and_query(
-                    "name",
-                    query.serialize_value(factory)?.into(),
-                ))
-            })
-            .transpose()?;
-        let description_query = self
-            .description
-            .as_ref()
-            .map(|query| {
-                Ok(SerializedQuery::from_path_and_query(
-                    "description",
-                    query.serialize_value(factory)?.into(),
-                ))
-            })
-            .transpose()?;
-
-        Ok(SerializedQuery::all_opt([name_query, description_query]))
+    fn as_raw_query(&self) -> RawQuery {
+        match self {
+            Self::Name(query) => RawQuery::simple("name", query.to_value_query()),
+            Self::Description(query) => RawQuery::simple("description", query.to_value_query()),
+        }
     }
 }
