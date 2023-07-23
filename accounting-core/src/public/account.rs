@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::backend::query::{Query, Queryable, RawQuery, SimpleQuery};
+use crate::backend::query::{Index, Query, Queryable, RawQuery, SimpleQuery};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Account {
@@ -10,6 +10,13 @@ pub struct Account {
 
 impl Queryable for Account {
     type Query = AccountQuery;
+
+    fn indices(&self) -> Vec<Index> {
+        vec![
+            Index::simple("name", self.name.clone()),
+            Index::simple("description", self.description.clone()),
+        ]
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

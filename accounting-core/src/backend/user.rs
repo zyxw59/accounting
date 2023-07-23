@@ -4,7 +4,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use crate::{
     backend::{
         id::Id,
-        query::{Query, Queryable, RawQuery, SimpleQuery, ToValue},
+        query::{Index, Query, Queryable, RawQuery, SimpleQuery, ToValue},
         version::Versioned,
     },
     map::Map,
@@ -24,6 +24,21 @@ pub struct Group {
 
 impl Queryable for Group {
     type Query = GroupQuery;
+
+    fn indices(&self) -> Vec<Index> {
+        let mut indices = Vec::with_capacity(self.permissions.users.len() + 1);
+        indices.push(Index::simple("name", self.name.clone()));
+        indices.extend(self.permissions.users.iter().map(|(user, access)| {
+            Index::complex(
+                GroupQuery::USER_PERMISSIONS_PARAMETER,
+                [
+                    ("user", (*user).into()),
+                    ("access", (*access as i32).into()),
+                ],
+            )
+        }));
+        indices
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

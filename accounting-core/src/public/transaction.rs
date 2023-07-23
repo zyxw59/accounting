@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     backend::{
         id::Id,
-        query::{Query, Queryable, RawQuery, SimpleQuery, ToValue},
+        query::{Index, Query, Queryable, RawQuery, SimpleQuery, ToValue},
     },
     date::Date,
     map::Map,
@@ -19,6 +19,19 @@ pub struct Transaction {
 
 impl Queryable for Transaction {
     type Query = TransactionQuery;
+
+    fn indices(&self) -> Vec<Index> {
+        let mut indices = Vec::with_capacity(self.amounts.len() + 2);
+        indices.push(Index::simple("date", self.date));
+        indices.push(Index::simple("description", self.description.clone()));
+        indices.extend(self.amounts.iter().map(|(account, amount)| {
+            Index::complex(
+                TransactionQuery::ACCOUNT_AMOUNT_PARAMETER,
+                [("account", (*account).into()), ("amount", (*amount).into())],
+            )
+        }));
+        indices
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

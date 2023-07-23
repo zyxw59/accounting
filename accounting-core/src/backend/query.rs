@@ -14,6 +14,8 @@ use crate::{
 
 pub trait Queryable: Sized {
     type Query: Query<Self> + Send + Sync;
+
+    fn indices(&self) -> Vec<Index>;
 }
 
 pub trait Query<T> {
@@ -21,6 +23,74 @@ pub trait Query<T> {
     fn matches(&self, object: &T) -> bool;
 
     fn as_raw_query(&self) -> RawQuery;
+}
+
+pub enum Index {
+    Simple {
+        parameter: &'static str,
+        value: IndexValue,
+    },
+    Complex {
+        parameter: &'static str,
+        values: BTreeMap<&'static str, IndexValue>,
+    },
+}
+
+impl Index {
+    pub fn simple(parameter: &'static str, value: impl Into<IndexValue>) -> Self {
+        Self::Simple {
+            parameter,
+            value: value.into(),
+        }
+    }
+
+    pub fn complex(
+        parameter: &'static str,
+        values: impl IntoIterator<Item = (&'static str, IndexValue)>,
+    ) -> Self {
+        Self::Complex {
+            parameter,
+            values: values.into_iter().collect(),
+        }
+    }
+}
+
+pub enum IndexValue {
+    String(String),
+    Id(Id<()>),
+    Integer(i32),
+    Amount(Amount),
+    Date(Date),
+}
+
+impl From<String> for IndexValue {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
+}
+
+impl<T> From<Id<T>> for IndexValue {
+    fn from(value: Id<T>) -> Self {
+        Self::Id(value.transmute())
+    }
+}
+
+impl From<i32> for IndexValue {
+    fn from(value: i32) -> Self {
+        Self::Integer(value)
+    }
+}
+
+impl From<Amount> for IndexValue {
+    fn from(value: Amount) -> Self {
+        Self::Amount(value)
+    }
+}
+
+impl From<Date> for IndexValue {
+    fn from(value: Date) -> Self {
+        Self::Date(value)
+    }
 }
 
 pub enum RawQuery<'a> {
