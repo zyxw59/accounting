@@ -3,14 +3,9 @@ use std::{borrow::Cow, collections::BTreeMap};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    backend::{
-        id::Id,
-        user::{Group, WithGroup},
-    },
-    date::Date,
-    public::amount::Amount,
-};
+use crate::{backend::id::Id, date::Date, public::amount::Amount};
+
+pub const REFERENCES_PARAMETER: &str = "_references";
 
 pub trait Queryable: Sized {
     type Query: Query<Self> + Send + Sync;
@@ -325,40 +320,4 @@ pub enum SimpleValueQuery<'a> {
     Integer(SimpleQuery<i32>),
     Amount(SimpleQuery<Amount>),
     Date(SimpleQuery<Date>),
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(bound(
-    deserialize = "T::Query: Deserialize<'de>",
-    serialize = "T::Query: Serialize"
-))]
-pub enum GroupQuery<T: Queryable> {
-    Group(Vec<Id<Group>>),
-    Other(T::Query),
-}
-
-impl<T> Query<WithGroup<T>> for GroupQuery<T>
-where
-    T: Queryable,
-{
-    fn matches(&self, object: &WithGroup<T>) -> bool {
-        match self {
-            Self::Group(groups) => groups.contains(&object.group),
-            Self::Other(query) => query.matches(&object.object),
-        }
-    }
-
-    fn as_raw_query(&self) -> RawQuery {
-        match self {
-            Self::Group(groups) => RawQuery::simple(
-                "_group",
-                SimpleQuery {
-                    in_: Some(groups.iter().copied().map(Id::transmute).collect()),
-                    ..Default::default()
-                }
-                .into(),
-            ),
-            Self::Other(query) => query.as_raw_query(),
-        }
-    }
 }

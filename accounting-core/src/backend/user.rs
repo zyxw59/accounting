@@ -4,7 +4,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use crate::{
     backend::{
         id::Id,
-        query::{Index, Query, Queryable, RawQuery, SimpleQuery, ToValue},
+        query::{Index, Query, Queryable, RawQuery, SimpleQuery, ToValue, REFERENCES_PARAMETER},
         version::Versioned,
     },
     map::Map,
@@ -27,13 +27,19 @@ impl Queryable for Group {
 
     fn indices(&self) -> Vec<Index> {
         let mut indices = Vec::with_capacity(self.permissions.users.len() + 1);
-        indices.push(Index::simple("name", self.name.clone()));
+        indices.push(Index::simple(GroupQuery::NAME_PARAMETER, self.name.clone()));
+        indices.extend(
+            self.permissions
+                .users
+                .keys()
+                .map(|user| Index::simple(REFERENCES_PARAMETER, *user)),
+        );
         indices.extend(self.permissions.users.iter().map(|(user, access)| {
             Index::complex(
-                GroupQuery::USER_PERMISSIONS_PARAMETER,
+                GroupQuery::USER_ACCESS_PARAMETER,
                 [
-                    ("user", (*user).into()),
-                    ("access", (*access as i32).into()),
+                    (GroupQuery::USER_PARAMETER, (*user).into()),
+                    (GroupQuery::ACCESS_PARAMETER, (*access as i32).into()),
                 ],
             )
         }));
@@ -49,7 +55,10 @@ pub enum GroupQuery {
 }
 
 impl GroupQuery {
-    const USER_PERMISSIONS_PARAMETER: &'static str = "user_permissions";
+    const NAME_PARAMETER: &str = "name";
+    const USER_ACCESS_PARAMETER: &str = "user_access";
+    const USER_PARAMETER: &str = "user";
+    const ACCESS_PARAMETER: &str = "access";
 }
 
 impl Query<Group> for GroupQuery {
@@ -65,11 +74,11 @@ impl Query<Group> for GroupQuery {
 
     fn as_raw_query(&self) -> RawQuery {
         match self {
-            Self::Name(query) => RawQuery::simple("name", query.to_value_query()),
+            Self::Name(query) => RawQuery::simple(Self::NAME_PARAMETER, query.to_value_query()),
             Self::UserAny(users) => RawQuery::complex(
-                Self::USER_PERMISSIONS_PARAMETER,
+                Self::USER_ACCESS_PARAMETER,
                 [(
-                    "user",
+                    Self::USER_PARAMETER,
                     SimpleQuery {
                         in_: Some(users.iter().map(ToValue::to_value).collect()),
                         ..Default::default()
@@ -78,17 +87,17 @@ impl Query<Group> for GroupQuery {
                 )],
             ),
             Self::UserPerm(user, permissions) => RawQuery::complex(
-                Self::USER_PERMISSIONS_PARAMETER,
+                Self::USER_ACCESS_PARAMETER,
                 [
                     (
-                        "user",
+                        Self::USER_PARAMETER,
                         SimpleQuery {
                             eq: Some(user.to_value()),
                             ..Default::default()
                         }
                         .into(),
                     ),
-                    ("access", permissions.to_value_query()),
+                    (Self::ACCESS_PARAMETER, permissions.to_value_query()),
                 ],
             ),
         }
@@ -167,3 +176,57 @@ impl ToValue for AccessLevel {
 pub trait ChangeGroup {}
 
 impl ChangeGroup for Group {}
+
+impl<T: Queryable> Queryable for WithGroup<T> {
+    type Query = WithGroupQuery<T>;
+
+    fn indices(&self) -> Vec<Index> {
+        let mut indices = self.object.indices();
+        indices.push(Index::simple(REFERENCES_PARAMETER, self.group));
+        indices.push(Index::simple(
+            WithGroupQuery::<T>::GROUP_PARAMETER,
+            self.group,
+        ));
+        indices
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(bound(
+    deserialize = "T::Query: Deserialize<'de>",
+    serialize = "T::Query: Serialize"
+))]
+pub enum WithGroupQuery<T: Queryable> {
+    Group(Vec<Id<Group>>),
+    Other(T::Query),
+}
+
+impl<T: Queryable> WithGroupQuery<T> {
+    const GROUP_PARAMETER: &str = "_group";
+}
+
+impl<T> Query<WithGroup<T>> for WithGroupQuery<T>
+where
+    T: Queryable,
+{
+    fn matches(&self, object: &WithGroup<T>) -> bool {
+        match self {
+            Self::Group(groups) => groups.contains(&object.group),
+            Self::Other(query) => query.matches(&object.object),
+        }
+    }
+
+    fn as_raw_query(&self) -> RawQuery {
+        match self {
+            Self::Group(groups) => RawQuery::simple(
+                Self::GROUP_PARAMETER,
+                SimpleQuery {
+                    in_: Some(groups.iter().copied().map(Id::transmute).collect()),
+                    ..Default::default()
+                }
+                .into(),
+            ),
+            Self::Other(query) => query.as_raw_query(),
+        }
+    }
+}

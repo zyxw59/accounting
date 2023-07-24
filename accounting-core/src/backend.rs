@@ -15,8 +15,8 @@ pub mod version;
 
 use collection::Collection;
 use id::Id;
-use query::{GroupQuery, Queryable};
-use user::{AccessLevel, ChangeGroup, Group, User, WithGroup};
+use query::Queryable;
+use user::{AccessLevel, ChangeGroup, Group, User, WithGroup, WithGroupQuery};
 use version::Versioned;
 
 pub struct Backend {
@@ -153,7 +153,7 @@ where
         }
     }
 
-    async fn query_count(&self, query: &[GroupQuery<T>]) -> Result<usize>
+    async fn query_count(&self, query: &[WithGroupQuery<T>]) -> Result<usize>
     where
         T: Queryable,
     {
