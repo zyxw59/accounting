@@ -16,6 +16,25 @@ pub struct User {
     pub is_superuser: bool,
 }
 
+impl Queryable for User {
+    const TYPE_NAME: &'static str = "user";
+
+    type Query = UserQuery;
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum UserQuery {
+    Name(SimpleQuery<String>),
+}
+
+impl Query<User> for UserQuery {
+    fn matches(&self, user: &User) -> bool {
+        match self {
+            Self::Name(query) => query.matches(&user.name),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Group {
     pub name: String,

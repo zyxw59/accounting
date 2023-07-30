@@ -2,6 +2,7 @@ use accounting_core::backend::query::{Query, Queryable};
 use sqlx::Postgres;
 
 mod query;
+mod index;
 
 use query::ToSqlQuery;
 

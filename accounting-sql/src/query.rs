@@ -19,9 +19,9 @@ impl fmt::Display for TableName {
 }
 
 impl TableName {
-    const SINGULAR_PARAMETERS: Self = Self("singular_parameters");
-    const ACCOUNT_AMOUNT: Self = Self("account_amount");
-    const USER_ACCESS: Self = Self("user_access");
+    pub const SINGULAR_PARAMETERS: Self = Self("singular_parameters");
+    pub const ACCOUNT_AMOUNT: Self = Self("account_amount");
+    pub const USER_ACCESS: Self = Self("user_access");
 }
 
 pub fn query<'a, Q: ToSqlQuery>(
