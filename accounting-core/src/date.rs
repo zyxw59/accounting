@@ -14,6 +14,8 @@ use time::serde::format_description;
 /// [Julian Day Number]: https://en.wikipedia.org/wiki/Julian_day
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(feature = "sqlx", sqlx(transparent))]
 pub struct Date(pub time::Date);
 
 impl fmt::Display for Date {

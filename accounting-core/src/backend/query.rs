@@ -2,6 +2,8 @@ use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 
 pub trait Queryable: Sized {
+    const TYPE_NAME: &'static str;
+
     type Query: Query<Self> + Send + Sync;
 }
 

@@ -17,6 +17,15 @@ serde_repr = "0.1.12"
 thiserror = "1.0.40"
 time = { version = "0.3.20", features = ["serde", "formatting", "parsing"] }
 
+[dependencies.sqlx]
+version = "0.7.1"
+optional = true
+default-features = false
+features = ["time", "rust_decimal", "macros"]
+
+[features]
+sqlx-postgres = ["sqlx", "sqlx/postgres"]
+
 [dev-dependencies]
 pretty_assertions = "1.4.0"
 serde_json = "1.0.95"

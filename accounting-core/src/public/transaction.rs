@@ -18,6 +18,8 @@ pub struct Transaction {
 }
 
 impl Queryable for Transaction {
+    const TYPE_NAME: &'static str = "transaction";
+
     type Query = TransactionQuery;
 }
 

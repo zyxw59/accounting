@@ -9,6 +9,8 @@ pub struct Account {
 }
 
 impl Queryable for Account {
+    const TYPE_NAME: &'static str = "account";
+
     type Query = AccountQuery;
 }
 

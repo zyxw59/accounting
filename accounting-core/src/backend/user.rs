@@ -23,6 +23,8 @@ pub struct Group {
 }
 
 impl Queryable for Group {
+    const TYPE_NAME: &'static str = "group";
+
     type Query = GroupQuery;
 }
 
@@ -94,7 +96,8 @@ impl Permissions {
 #[derive(
     Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Deserialize_repr, Serialize_repr,
 )]
-#[repr(u8)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[repr(i8)]
 pub enum AccessLevel {
     /// No access
     #[default]
@@ -105,12 +108,21 @@ pub enum AccessLevel {
     Write,
 }
 
+#[cfg(feature = "sqlx-postgres")]
+impl sqlx::postgres::PgHasArrayType for AccessLevel {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        <i8 as sqlx::postgres::PgHasArrayType>::array_type_info()
+    }
+}
+
 /// Marker trait indicating that a type can be moved to a different group.
 pub trait ChangeGroup {}
 
 impl ChangeGroup for Group {}
 
 impl<T: Queryable> Queryable for WithGroup<T> {
+    const TYPE_NAME: &'static str = T::TYPE_NAME;
+
     type Query = WithGroupQuery<T>;
 }
 
