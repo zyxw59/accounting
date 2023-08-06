@@ -1,6 +1,7 @@
 CREATE TABLE resources (
   id BIGINT PRIMARY KEY NOT NULL,
   type TEXT NOT NULL,
+  version BIGINT NOT NULL,
   resource JSONB NOT NULL
 );
 
