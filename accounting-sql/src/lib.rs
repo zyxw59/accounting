@@ -14,7 +14,7 @@ use sqlx::{types::Json, Postgres, QueryBuilder};
 mod index;
 mod query;
 
-use index::Index;
+use index::Indexable;
 use query::ToSqlQuery;
 
 pub struct SqlCollection {
@@ -39,7 +39,7 @@ impl SqlCollection {
 #[async_trait::async_trait]
 impl<T> Collection<T> for SqlCollection
 where
-    T: Queryable + Index + Serialize + for<'de> Deserialize<'de> + Send + Sync + Unpin + 'static,
+    T: Queryable + Indexable + Serialize + for<'de> Deserialize<'de> + Send + Sync + Unpin + 'static,
     T::Query: ToSqlQuery,
 {
     async fn create(&mut self, object: WithGroup<T>) -> Result<Id<T>> {

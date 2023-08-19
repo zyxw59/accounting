@@ -1,62 +1,104 @@
 use accounting_core::{
     backend::{
-        id::WithId,
+        id::{Id, WithId},
         user::{Group, User, WithGroup},
     },
     public::{account::Account, transaction::Transaction},
 };
-use sqlx::{Postgres, QueryBuilder};
+use sqlx::{query_builder::Separated, Postgres, QueryBuilder};
 
 use crate::query::TableName;
 
-pub trait Index: Sized {
+pub trait Indexable: Sized {
     fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>>;
 }
 
-impl Index for Account {
+type PushParameter<'a, T> =
+    for<'b, 'c> fn(&'b mut Separated<'c, 'a, Postgres, &'static str>, &'a T);
+
+fn index_table<'a, T: 'a, const C: usize>(
+    table: TableName,
+    id: Id<T>,
+    object: &'a T,
+    columns: [&'static str; C],
+    parameters: [PushParameter<'a, T>; C],
+) -> QueryBuilder<'a, Postgres> {
+    let mut qb = QueryBuilder::new(format!("INSERT INTO {table}(id, "));
+    let mut push_columns = qb.separated(",");
+    for col in columns {
+        push_columns.push(col);
+    }
+    qb.push(") ");
+    qb.push_values([parameters], |mut separated, row| {
+        separated.push_bind(id);
+        for f in row {
+            f(&mut separated, object);
+        }
+    });
+    qb
+}
+
+impl Indexable for Account {
     fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>> {
-        let mut qb = QueryBuilder::new(format!(
-            "INSERT INTO {}(id, group_, name, description) VALUES (",
-            TableName::SINGULAR_PARAMETERS
-        ));
-        let mut values = qb.separated(",");
-        values.push_bind(this.id);
-        values.push_bind(this.object.group);
-        values.push_bind(&this.object.object.name);
-        values.push_bind(&this.object.object.description);
-        qb.push(")");
-        vec![qb]
+        let singular = index_table(
+            TableName::SINGULAR_PARAMETERS,
+            this.id,
+            &this.object,
+            ["group_", "name", "description"],
+            [
+                |q, v| {
+                    q.push_bind(v.group);
+                },
+                |q, v| {
+                    q.push_bind(&v.object.name);
+                },
+                |q, v| {
+                    q.push_bind(&v.object.description);
+                },
+            ],
+        );
+        vec![singular]
     }
 }
 
-impl Index for Transaction {
+impl Indexable for Transaction {
     fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>> {
-        let mut singular = QueryBuilder::new(format!(
-            "INSERT INTO {}(id, group_, description, date) VALUES (",
+        let singular = index_table(
             TableName::SINGULAR_PARAMETERS,
-        ));
-        let mut values = singular.separated(",");
-        values.push_bind(this.id);
-        values.push_bind(this.object.group);
-        values.push_bind(&this.object.object.description);
-        values.push_bind(this.object.object.date);
-        singular.push(")");
+            this.id,
+            &this.object,
+            ["group_", "description", "date"],
+            [
+                |q, v| {
+                    q.push_bind(v.group);
+                },
+                |q, v| {
+                    q.push_bind(&v.object.description);
+                },
+                |q, v| {
+                    q.push_bind(v.object.date);
+                },
+            ],
+        );
 
         let mut account_amount = QueryBuilder::new(format!(
             "INSERT INTO {}(id, account, amount) ",
             TableName::ACCOUNT_AMOUNT,
         ));
         // TODO: use `UNNEST` for more uniform queries
-        account_amount.push_values(this.object.object.amounts.iter(), |mut row, (account, amount)| {
-            row.push_bind(this.id);
-            row.push_bind(account);
-            row.push_bind(amount);
-        });
+        account_amount.push_values(
+            this.object.object.amounts.iter(),
+            |mut row, (account, amount)| {
+                row.push_bind(this.id);
+                row.push_bind(account);
+                row.push_bind(amount);
+            },
+        );
         vec![singular, account_amount]
     }
 }
 
-impl Index for Group {
+impl Indexable for Group {
     fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>> {
         let mut singular = QueryBuilder::new(format!(
             "INSERT INTO {}(id, group_, name) VALUES (",
@@ -73,16 +115,19 @@ impl Index for Group {
             TableName::USER_ACCESS,
         ));
         // TODO: use `UNNEST` for more uniform queries
-        user_access.push_values(this.object.object.permissions.users.iter(), |mut row, (user, access)| {
-            row.push_bind(this.id);
-            row.push_bind(user);
-            row.push_bind(access);
-        });
+        user_access.push_values(
+            this.object.object.permissions.users.iter(),
+            |mut row, (user, access)| {
+                row.push_bind(this.id);
+                row.push_bind(user);
+                row.push_bind(access);
+            },
+        );
         vec![singular, user_access]
     }
 }
 
-impl Index for User {
+impl Indexable for User {
     fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>> {
         let mut singular = QueryBuilder::new(format!(
             "INSERT INTO {}(id, group_, name) VALUES (",
