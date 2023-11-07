@@ -75,4 +75,3 @@ where
         <i64 as sqlx::Decode<'r, DB>>::decode(value).map(|version| Self(version as _))
     }
 }
-

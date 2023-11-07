@@ -39,7 +39,14 @@ impl SqlCollection {
 #[async_trait::async_trait]
 impl<T> Collection<T> for SqlCollection
 where
-    T: Queryable + Indexable + Serialize + for<'de> Deserialize<'de> + Send + Sync + Unpin + 'static,
+    T: Queryable
+        + Indexable
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + Send
+        + Sync
+        + Unpin
+        + 'static,
     T::Query: ToSqlQuery,
 {
     async fn create(&mut self, object: WithGroup<T>) -> Result<Id<T>> {
