@@ -1,4 +1,8 @@
 //! A typed 64-bit identifier for a resource.
+#![allow(
+    clippy::incorrect_clone_impl_on_copy_type,
+    clippy::incorrect_partial_ord_impl_on_ord_type
+)]
 
 use std::{fmt, marker::PhantomData};
 
