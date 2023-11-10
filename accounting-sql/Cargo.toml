@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 accounting-core = { version = "0.1.0", path = "../accounting-core", features = ["sqlx-postgres"] }
-async-trait = "0.1.68"
+async-trait = "0.1.74"
 futures = "0.3.28"
 indexmap = "2.0.0"
 serde = "1.0.159"
