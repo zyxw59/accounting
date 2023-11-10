@@ -1,6 +1,6 @@
 use accounting_core::{
     backend::{
-        id::{Id, WithId},
+        id::Id,
         user::{Group, User, WithGroup},
     },
     public::{account::Account, transaction::Transaction},
@@ -10,7 +10,7 @@ use sqlx::{query_builder::Separated, Postgres, QueryBuilder};
 use crate::query::TableName;
 
 pub trait Indexable: Sized {
-    fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>>;
+    fn index(id: Id<WithGroup<Self>>, object: &WithGroup<Self>) -> Vec<QueryBuilder<Postgres>>;
 }
 
 type PushParameter<'a, T> =
@@ -39,11 +39,11 @@ fn index_table<'a, T: 'a, const C: usize>(
 }
 
 impl Indexable for Account {
-    fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>> {
+    fn index(id: Id<WithGroup<Self>>, object: &WithGroup<Self>) -> Vec<QueryBuilder<Postgres>> {
         let singular = index_table(
             TableName::SINGULAR_PARAMETERS,
-            this.id,
-            &this.object,
+            id,
+            object,
             ["group_", "name", "description"],
             [
                 |q, v| {
@@ -62,11 +62,11 @@ impl Indexable for Account {
 }
 
 impl Indexable for Transaction {
-    fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>> {
+    fn index(id: Id<WithGroup<Self>>, object: &WithGroup<Self>) -> Vec<QueryBuilder<Postgres>> {
         let singular = index_table(
             TableName::SINGULAR_PARAMETERS,
-            this.id,
-            &this.object,
+            id,
+            object,
             ["group_", "description", "date"],
             [
                 |q, v| {
@@ -87,9 +87,9 @@ impl Indexable for Transaction {
         ));
         // TODO: use `UNNEST` for more uniform queries
         account_amount.push_values(
-            this.object.object.amounts.iter(),
+            object.object.amounts.iter(),
             |mut row, (account, amount)| {
-                row.push_bind(this.id);
+                row.push_bind(id);
                 row.push_bind(account);
                 row.push_bind(amount);
             },
@@ -99,15 +99,15 @@ impl Indexable for Transaction {
 }
 
 impl Indexable for Group {
-    fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>> {
+    fn index(id: Id<WithGroup<Self>>, object: &WithGroup<Self>) -> Vec<QueryBuilder<Postgres>> {
         let mut singular = QueryBuilder::new(format!(
             "INSERT INTO {}(id, group_, name) VALUES (",
             TableName::SINGULAR_PARAMETERS,
         ));
         let mut values = singular.separated(",");
-        values.push_bind(this.id);
-        values.push_bind(this.object.group);
-        values.push_bind(&this.object.object.name);
+        values.push_bind(id);
+        values.push_bind(object.group);
+        values.push_bind(&object.object.name);
         singular.push(")");
 
         let mut user_access = QueryBuilder::new(format!(
@@ -116,9 +116,9 @@ impl Indexable for Group {
         ));
         // TODO: use `UNNEST` for more uniform queries
         user_access.push_values(
-            this.object.object.permissions.users.iter(),
+            object.object.permissions.users.iter(),
             |mut row, (user, access)| {
-                row.push_bind(this.id);
+                row.push_bind(id);
                 row.push_bind(user);
                 row.push_bind(access);
             },
@@ -128,15 +128,15 @@ impl Indexable for Group {
 }
 
 impl Indexable for User {
-    fn index(this: &WithId<WithGroup<Self>>) -> Vec<QueryBuilder<Postgres>> {
+    fn index(id: Id<WithGroup<Self>>, object: &WithGroup<Self>) -> Vec<QueryBuilder<Postgres>> {
         let mut singular = QueryBuilder::new(format!(
             "INSERT INTO {}(id, group_, name) VALUES (",
             TableName::SINGULAR_PARAMETERS,
         ));
         let mut values = singular.separated(",");
-        values.push_bind(this.id);
-        values.push_bind(this.object.group);
-        values.push_bind(&this.object.object.name);
+        values.push_bind(id);
+        values.push_bind(object.group);
+        values.push_bind(&object.object.name);
         singular.push(")");
         vec![singular]
     }

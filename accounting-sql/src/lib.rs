@@ -1,7 +1,7 @@
 use accounting_core::{
     backend::{
         collection::Collection,
-        id::{Id, WithId},
+        id::Id,
         query::{Query, Queryable},
         user::{ChangeGroup, Group, WithGroup, WithGroupQuery},
         version::{Version, Versioned},
@@ -33,6 +33,21 @@ impl SqlCollection {
             .fetch_one(&self.connection_pool)
             .await?;
         Ok(count as usize)
+    }
+
+    async fn index_object<T: Indexable>(
+        &mut self,
+        id: Id<WithGroup<T>>,
+        object: &WithGroup<T>,
+    ) -> Result<()> {
+        for mut query in T::index(id, object) {
+            query
+                .build()
+                .execute(&self.connection_pool)
+                .await
+                .map_err(Error::backend)?;
+        }
+        Ok(())
     }
 }
 
@@ -68,16 +83,7 @@ where
             .execute(&self.connection_pool)
             .await
             .map_err(Error::backend)?;
-        for mut query in T::index(&WithId {
-            id,
-            object: versioned.object,
-        }) {
-            query
-                .build()
-                .execute(&self.connection_pool)
-                .await
-                .map_err(Error::backend)?;
-        }
+        self.index_object(id, &versioned.object).await?;
         Ok(id.transmute())
     }
 
