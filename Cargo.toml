@@ -3,3 +3,4 @@ members = [
     "accounting-core",
     "accounting-sql",
 ]
+resolver = "2"
