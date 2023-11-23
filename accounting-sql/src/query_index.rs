@@ -63,7 +63,32 @@ pub trait SqlTable {
 }
 
 pub trait ToSqlQuery<'a>: SqlTable {
-    fn push_query(&'a self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex);
+    fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex);
+}
+
+pub fn query<'a, T: Indexable + 'a>(
+    select: &'static str,
+    queries: &'a [T::Query],
+    type_name: &'static str,
+) -> QueryBuilder<'a, Postgres> {
+    let mut qb = QueryBuilder::new(format!(
+        "SELECT {select} FROM resources JOIN singular_parameters USING (id)"
+    ));
+    for (index, param) in queries.iter().enumerate() {
+        let table = T::transform_query(param).table();
+        if table != TableName::SINGULAR_PARAMETERS {
+            qb.push(format_args!(
+                " JOIN {table} {} USING (id)",
+                TableIndex(index)
+            ));
+        }
+    }
+    qb.push(format_args!(" WHERE resources.type = '{type_name}'"));
+    for (index, param) in queries.iter().enumerate() {
+        T::transform_query(param).push_query(&mut qb, TableIndex(index));
+    }
+    qb.push(" DISTINCT BY (id)");
+    qb
 }
 
 fn push_vec_query<'a, T>(
@@ -173,7 +198,7 @@ impl<T: QueryOrIndex> SqlTable for Singular<'_, T> {
 }
 
 impl<'a> ToSqlQuery<'a> for Singular<'a, Query> {
-    fn push_query(&'a self, builder: &mut QueryBuilder<'a, Postgres>, _table_index: TableIndex) {
+    fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, _table_index: TableIndex) {
         let Self {
             group,
             name,
@@ -231,7 +256,7 @@ pub mod transaction {
     }
 
     impl<'a> ToSqlQuery<'a> for Query<'a> {
-        fn push_query(&'a self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex) {
+        fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex) {
             match self {
                 Self::Singular(query) => query.push_query(builder, table_index),
                 Self::AccountAmount(query) => query.push_query(builder, table_index),
@@ -261,7 +286,7 @@ pub mod transaction {
     }
 
     impl<'a> ToSqlQuery<'a> for AccountAmount<'a, super::Query> {
-        fn push_query(&'a self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex) {
+        fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex) {
             let Self { account, amount } = self;
             push_simple_query(table_index, Self::ACCOUNT, *account, builder);
             push_simple_query(table_index, Self::AMOUNT, *amount, builder);
