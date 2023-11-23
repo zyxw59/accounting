@@ -13,6 +13,7 @@ use sqlx::{types::Json, Postgres, QueryBuilder};
 
 mod index;
 mod query;
+mod query_index;
 
 use index::Indexable;
 use query::ToSqlQuery;

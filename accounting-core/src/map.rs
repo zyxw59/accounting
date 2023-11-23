@@ -22,6 +22,15 @@ impl<K, V> ops::DerefMut for Map<K, V> {
     }
 }
 
+impl<K, V> IntoIterator for Map<K, V> {
+    type IntoIter = <BTreeMap<K, V> as IntoIterator>::IntoIter;
+    type Item = <BTreeMap<K, V> as IntoIterator>::Item;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl<'de, K, V> Deserialize<'de> for Map<K, V>
 where
     K: Deserialize<'de> + Ord,
