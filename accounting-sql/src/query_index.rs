@@ -337,3 +337,107 @@ pub mod transaction {
         }
     }
 }
+
+pub mod group {
+    use accounting_core::backend::{
+        id::Id,
+        query::SimpleQueryRef,
+        user::{AccessLevel, Group, GroupQuery, User},
+    };
+    use sqlx::{Postgres, QueryBuilder};
+
+    use super::{
+        push_simple_query, Indexable, QueryOrIndex, Singular, SqlTable, TableIndex, TableName,
+        ToSqlQuery,
+    };
+
+    pub enum Query<'a> {
+        Singular(Singular<'a, super::Query>),
+        UserAccess(UserAccess<'a, super::Query>),
+    }
+
+    impl SqlTable for Query<'_> {
+        fn table(&self) -> TableName {
+            match self {
+                Self::Singular(query) => query.table(),
+                Self::UserAccess(query) => query.table(),
+            }
+        }
+    }
+
+    impl<'a> ToSqlQuery<'a> for Query<'a> {
+        fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex) {
+            match self {
+                Self::Singular(query) => query.push_query(builder, table_index),
+                Self::UserAccess(query) => query.push_query(builder, table_index),
+            }
+        }
+    }
+
+    pub struct Index<'a> {
+        singular: Singular<'a, super::Index>,
+        user_access: Vec<UserAccess<'a, super::Index>>,
+    }
+
+    pub struct UserAccess<'a, T: QueryOrIndex> {
+        user: T::Value<'a, Id<User>>,
+        access: T::Value<'a, AccessLevel>,
+    }
+
+    impl<T: QueryOrIndex> UserAccess<'_, T> {
+        const USER: &str = "user";
+        const ACCESS: &str = "access";
+    }
+
+    impl<T: QueryOrIndex> SqlTable for UserAccess<'_, T> {
+        fn table(&self) -> TableName {
+            TableName::USER_ACCESS
+        }
+    }
+
+    impl<'a> ToSqlQuery<'a> for UserAccess<'a, super::Query> {
+        fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex) {
+            let Self { user, access } = self;
+            push_simple_query(table_index, Self::USER, *user, builder);
+            push_simple_query(table_index, Self::ACCESS, *access, builder);
+        }
+    }
+
+    impl Indexable for Group {
+        type IndexQuery<'a> = Query<'a>;
+        type Index<'a> = Index<'a>;
+
+        fn index<'a>(&'a self, group: &'a Id<Group>) -> Self::Index<'a> {
+            Index {
+                singular: Singular {
+                    group: Some(group),
+                    name: Some(&self.name),
+                    ..Default::default()
+                },
+                user_access: self
+                    .permissions
+                    .users
+                    .iter()
+                    .map(|(user, access)| UserAccess { user, access })
+                    .collect(),
+            }
+        }
+
+        fn transform_query(query: &GroupQuery) -> Self::IndexQuery<'_> {
+            match query {
+                GroupQuery::Name(name) => Query::Singular(Singular {
+                    name: Some(name.as_ref()),
+                    ..Default::default()
+                }),
+                GroupQuery::UserAny(users) => Query::UserAccess(UserAccess {
+                    user: SimpleQueryRef::in_(users),
+                    access: Default::default(),
+                }),
+                GroupQuery::UserPerm(user, access) => Query::UserAccess(UserAccess {
+                    user: SimpleQueryRef::eq(user),
+                    access: access.as_ref(),
+                }),
+            }
+        }
+    }
+}
