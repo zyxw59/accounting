@@ -8,7 +8,7 @@ use accounting_core::{
     },
     date::Date,
 };
-use sqlx::{Postgres, QueryBuilder};
+use sqlx::{Postgres, QueryBuilder, Transaction};
 
 pub trait QueryOrIndex {
     type Value<'a, T>
@@ -50,7 +50,7 @@ impl fmt::Display for TableIndex {
 
 pub trait Indexable: Queryable {
     type IndexQuery<'a>: ToSqlQuery<'a>;
-    type Index<'a>
+    type Index<'a>: SqlIndexQueries<'a, Self>
     where
         Self: 'a;
 
@@ -64,6 +64,31 @@ pub trait SqlTable {
 
 pub trait ToSqlQuery<'a>: SqlTable {
     fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, table_index: TableIndex);
+}
+
+/// A representation of a set of indexes for a single object, that can be transformed into SQL
+/// queries to insert, remove, or update the values in the database.
+#[async_trait::async_trait]
+pub trait SqlIndexQueries<'a, T: 'a> {
+    /// Insert the indexes into the database
+    async fn insert_index(
+        &self,
+        id: Id<T>,
+        transaction: &mut Transaction<'a, Postgres>,
+    ) -> sqlx::Result<()>;
+
+    /// Remove all indexes corresponding to this object from the database
+    async fn remove_index(
+        id: Id<T>,
+        transaction: &mut Transaction<'a, Postgres>,
+    ) -> sqlx::Result<()>;
+
+    /// Update the indexes in the database.
+    async fn update_index(
+        &self,
+        id: Id<T>,
+        transaction: &mut Transaction<'a, Postgres>,
+    ) -> sqlx::Result<()>;
 }
 
 pub fn query<'a, T: Indexable + 'a>(
@@ -175,6 +200,167 @@ fn push_simple_query<'a, T>(
     }
 }
 
+mod index_values {
+    use accounting_core::backend::id::Id;
+    use sqlx::{query_builder::Separated, Postgres, QueryBuilder, Transaction};
+
+    use super::{Index, Singular, TableName};
+
+    pub(super) type PushParameter<'a, T> =
+        for<'b, 'c> fn(&'b mut Separated<'c, 'a, Postgres, &'static str>, &T);
+
+    macro_rules! push_parameter {
+        ($this:ident . $($rest:tt)+) => {
+            |q, $this| {
+                q.push_bind($this.$($rest)+);
+            }
+        };
+    }
+    pub(super) use push_parameter;
+
+    pub(super) trait IndexValues<'a> {
+        /// This should be an array ([`[T; N]`][array]), to ensure that [`COLUMNS`][Self::COLUMNS]
+        /// and [`PARAMETERS`][Self::PARAMETERS] are the same length.
+        type Array<T>: IntoIterator<Item = T>;
+
+        const COLUMNS: Self::Array<&'static str>;
+
+        const PARAMETERS: Self::Array<PushParameter<'a, Self>>;
+
+        const TABLE: TableName;
+    }
+
+    impl<'a> IndexValues<'a> for Singular<'a, Index> {
+        type Array<T> = [T; 4];
+
+        const COLUMNS: Self::Array<&'static str> = ["group_", "name", "description", "date"];
+
+        const PARAMETERS: Self::Array<PushParameter<'a, Self>> = [
+            push_parameter!(this.group),
+            push_parameter!(this.name),
+            push_parameter!(this.description),
+            push_parameter!(this.date),
+        ];
+
+        const TABLE: TableName = TableName::SINGULAR_PARAMETERS;
+    }
+
+    // TODO: use `UNNEST`
+    pub(super) fn index_many<'a, 'i, T: 'a, I: 'i + 'a>(
+        id: Id<T>,
+        indexes: impl IntoIterator<Item = &'i I>,
+    ) -> QueryBuilder<'a, Postgres>
+    where
+        I: IndexValues<'a>,
+    {
+        let mut qb = QueryBuilder::new(format!("INSERT INTO {}(id, ", I::TABLE));
+        let mut push_columns = qb.separated(", ");
+        for col in I::COLUMNS {
+            push_columns.push(col);
+        }
+        qb.push(") ");
+        qb.push_values(indexes, |mut separated, index| {
+            separated.push_bind(id);
+            for f in I::PARAMETERS {
+                f(&mut separated, index);
+            }
+        });
+        qb
+    }
+
+    #[async_trait::async_trait]
+    impl<'a, T, I> super::SqlIndexQueries<'a, T> for I
+    where
+        T: 'a,
+        I: IndexValues<'a> + Send + Sync + 'a,
+    {
+        async fn insert_index(
+            &self,
+            id: Id<T>,
+            transaction: &mut Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            index_many(id, [self])
+                .build()
+                .execute(&mut **transaction)
+                .await?;
+            Ok(())
+        }
+
+        async fn remove_index(
+            id: Id<T>,
+            transaction: &mut Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            let mut qb = QueryBuilder::new(format!("DELETE FROM {} WHERE id = ", Self::TABLE));
+            qb.push_bind(id);
+            qb.build().execute(&mut **transaction).await?;
+            Ok(())
+        }
+
+        async fn update_index(
+            &self,
+            id: Id<T>,
+            transaction: &mut Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            let mut qb = index_many(id, [self]);
+            qb.push(" ON CONFLICT DO UPDATE");
+            qb.build().execute(&mut **transaction).await?;
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl<'a, T, I> super::SqlIndexQueries<'a, T> for [I]
+    where
+        T: 'a,
+        I: IndexValues<'a> + Send + Sync + 'a,
+    {
+        async fn insert_index(
+            &self,
+            id: Id<T>,
+            transaction: &mut Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            index_many(id, self)
+                .build()
+                .execute(&mut **transaction)
+                .await?;
+            Ok(())
+        }
+
+        async fn remove_index(
+            id: Id<T>,
+            transaction: &mut Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            let mut qb = QueryBuilder::new(format!("DELETE FROM {} WHERE id = ", I::TABLE));
+            qb.push_bind(id);
+            qb.build().execute(&mut **transaction).await?;
+            Ok(())
+        }
+
+        async fn update_index(
+            &self,
+            id: Id<T>,
+            transaction: &mut Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            Self::remove_index(id, transaction).await?;
+            self.insert_index(id, transaction).await?;
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn singular_index_query() -> anyhow::Result<()> {
+        use sqlx::Execute;
+
+        let mut query = index_many(
+            Id::<()>::new(0),
+            &[Singular::<Index>::default(), Singular::<Index>::default()],
+        );
+        assert_eq!(query.build().sql(), "INSERT INTO singular_parameters(id, group_, name, description, date) VALUES ($1, $2, $3, $4, $5), ($6, $7, $8, $9, $10)");
+        Ok(())
+    }
+}
+
 #[derive(derivative::Derivative)]
 #[derivative(Default(bound = ""))]
 pub struct Singular<'a, T: QueryOrIndex> {
@@ -237,8 +423,9 @@ pub mod transaction {
     use sqlx::{Postgres, QueryBuilder};
 
     use super::{
-        push_simple_query, Indexable, QueryOrIndex, Singular, SqlTable, TableIndex, TableName,
-        ToSqlQuery,
+        index_values::{push_parameter, IndexValues, PushParameter},
+        push_simple_query, Indexable, QueryOrIndex, Singular, SqlIndexQueries, SqlTable,
+        TableIndex, TableName, ToSqlQuery,
     };
 
     pub enum Query<'a> {
@@ -269,6 +456,38 @@ pub mod transaction {
         account_amount: Vec<AccountAmount<'a, super::Index>>,
     }
 
+    #[async_trait::async_trait]
+    impl<'a> SqlIndexQueries<'a, Transaction> for Index<'a> {
+        async fn insert_index(
+            &self,
+            id: Id<Transaction>,
+            transaction: &mut sqlx::Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            self.singular.insert_index(id, transaction).await?;
+            self.account_amount.insert_index(id, transaction).await?;
+            Ok(())
+        }
+
+        async fn remove_index(
+            id: Id<Transaction>,
+            transaction: &mut sqlx::Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            Singular::remove_index(id, transaction).await?;
+            AccountAmount::remove_index(id, transaction).await?;
+            Ok(())
+        }
+
+        async fn update_index(
+            &self,
+            id: Id<Transaction>,
+            transaction: &mut sqlx::Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            self.singular.update_index(id, transaction).await?;
+            self.account_amount.update_index(id, transaction).await?;
+            Ok(())
+        }
+    }
+
     pub struct AccountAmount<'a, T: QueryOrIndex> {
         account: T::Value<'a, Id<Account>>,
         amount: T::Value<'a, Amount>,
@@ -291,6 +510,14 @@ pub mod transaction {
             push_simple_query(table_index, Self::ACCOUNT, *account, builder);
             push_simple_query(table_index, Self::AMOUNT, *amount, builder);
         }
+    }
+
+    impl<'a> IndexValues<'a> for AccountAmount<'a, super::Index> {
+        type Array<T> = [T; 2];
+        const COLUMNS: Self::Array<&'static str> = [Self::ACCOUNT, Self::AMOUNT];
+        const PARAMETERS: Self::Array<PushParameter<'a, Self>> =
+            [push_parameter!(this.account), push_parameter!(this.amount)];
+        const TABLE: TableName = TableName::ACCOUNT_AMOUNT;
     }
 
     impl Indexable for Transaction {
@@ -347,8 +574,9 @@ pub mod group {
     use sqlx::{Postgres, QueryBuilder};
 
     use super::{
-        push_simple_query, Indexable, QueryOrIndex, Singular, SqlTable, TableIndex, TableName,
-        ToSqlQuery,
+        index_values::{push_parameter, IndexValues, PushParameter},
+        push_simple_query, Indexable, QueryOrIndex, Singular, SqlIndexQueries, SqlTable,
+        TableIndex, TableName, ToSqlQuery,
     };
 
     pub enum Query<'a> {
@@ -379,6 +607,38 @@ pub mod group {
         user_access: Vec<UserAccess<'a, super::Index>>,
     }
 
+    #[async_trait::async_trait]
+    impl<'a> SqlIndexQueries<'a, Group> for Index<'a> {
+        async fn insert_index(
+            &self,
+            id: Id<Group>,
+            transaction: &mut sqlx::Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            self.singular.insert_index(id, transaction).await?;
+            self.user_access.insert_index(id, transaction).await?;
+            Ok(())
+        }
+
+        async fn remove_index(
+            id: Id<Group>,
+            transaction: &mut sqlx::Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            Singular::remove_index(id, transaction).await?;
+            UserAccess::remove_index(id, transaction).await?;
+            Ok(())
+        }
+
+        async fn update_index(
+            &self,
+            id: Id<Group>,
+            transaction: &mut sqlx::Transaction<'a, Postgres>,
+        ) -> sqlx::Result<()> {
+            self.singular.update_index(id, transaction).await?;
+            self.user_access.update_index(id, transaction).await?;
+            Ok(())
+        }
+    }
+
     pub struct UserAccess<'a, T: QueryOrIndex> {
         user: T::Value<'a, Id<User>>,
         access: T::Value<'a, AccessLevel>,
@@ -401,6 +661,14 @@ pub mod group {
             push_simple_query(table_index, Self::USER, *user, builder);
             push_simple_query(table_index, Self::ACCESS, *access, builder);
         }
+    }
+
+    impl<'a> IndexValues<'a> for UserAccess<'a, super::Index> {
+        type Array<T> = [T; 2];
+        const COLUMNS: Self::Array<&'static str> = [Self::USER, Self::ACCESS];
+        const PARAMETERS: Self::Array<PushParameter<'a, Self>> =
+            [push_parameter!(this.user), push_parameter!(this.access)];
+        const TABLE: TableName = TableName::USER_ACCESS;
     }
 
     impl Indexable for Group {
