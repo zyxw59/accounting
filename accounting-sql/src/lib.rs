@@ -19,7 +19,7 @@ pub struct SqlCollection {
 }
 
 impl SqlCollection {
-    pub async fn query_count<T>(&self, queries: &[T::Query]) -> sqlx::Result<usize>
+    pub async fn query_count<T>(&self, queries: &[WithGroupQuery<T>]) -> sqlx::Result<usize>
     where
         T: Indexable,
     {
@@ -110,7 +110,14 @@ where
         Ok(())
     }
 
-    async fn update(&mut self, Versioned { object, id, version }: Versioned<T>) -> Result<()> {
+    async fn update(
+        &mut self,
+        Versioned {
+            object,
+            id,
+            version,
+        }: Versioned<T>,
+    ) -> Result<()> {
         let new_version = Version::new_random();
         let mut qb = QueryBuilder::new("UPDATE resources SET (version, resource) = (");
         let mut values = qb.separated(",");
@@ -163,7 +170,7 @@ where
     }
 
     async fn query_count(&self, query: &[WithGroupQuery<T>]) -> Result<usize> {
-        todo!();
+        self.query_count(query).await.map_err(Error::backend)
     }
 }
 

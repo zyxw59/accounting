@@ -4,6 +4,7 @@ use accounting_core::{
     backend::{
         id::Id,
         query::{Queryable, SimpleQueryRef},
+        user::{Group, WithGroupQuery},
     },
     date::Date,
 };
@@ -169,6 +170,7 @@ impl fmt::Display for TableName {
 }
 
 impl TableName {
+    pub const RESOURCES: Self = Self("resources");
     pub const SINGULAR_PARAMETERS: Self = Self("singular_parameters");
     pub const ACCOUNT_AMOUNT: Self = Self("account_amount");
     pub const USER_ACCESS: Self = Self("user_access");
@@ -228,24 +230,33 @@ pub trait SqlIndexQueries<'a, T: 'a>: Send + Sync {
 
 pub fn query<'a, T: Indexable + 'a>(
     select: &'static str,
-    queries: &'a [T::Query],
+    queries: &'a [WithGroupQuery<T>],
 ) -> QueryBuilder<'a, Postgres> {
     let mut qb = QueryBuilder::new(format!(
         "SELECT {select} FROM resources JOIN {} USING (id)",
         TableName::SINGULAR_PARAMETERS,
     ));
     for (index, param) in queries.iter().enumerate() {
-        let table = T::transform_query(param).table();
-        if table != TableName::SINGULAR_PARAMETERS {
-            qb.push(format_args!(
-                " JOIN {table} {} USING (id)",
-                TableIndex(index)
-            ));
+        if let WithGroupQuery::Other(param) = param {
+            let table = T::transform_query(param).table();
+            if table != TableName::SINGULAR_PARAMETERS {
+                qb.push(format_args!(
+                    " JOIN {table} {} USING (id)",
+                    TableIndex(index)
+                ));
+            }
         }
     }
     qb.push(format_args!(" WHERE resources.type = '{}'", T::TYPE_NAME));
     for (index, param) in queries.iter().enumerate() {
-        T::transform_query(param).push_query(&mut qb, TableIndex(index));
+        match param {
+            WithGroupQuery::Group(param) => {
+                ResourcesTableQuery::new(param).push_query(&mut qb, TableIndex(index))
+            }
+            WithGroupQuery::Other(param) => {
+                T::transform_query(param).push_query(&mut qb, TableIndex(index))
+            }
+        }
     }
     qb.push(" DISTINCT BY (id)");
     qb
@@ -382,8 +393,7 @@ impl<'a> ToSqlQuery<'a> for Singular<'a, Query> {
 impl<'a> index_values::IndexValues<'a> for Singular<'a, Index> {
     type Array<T> = [T; 3];
 
-    const COLUMNS: Self::Array<&'static str> =
-        [Self::NAME, Self::DESCRIPTION, Self::DATE];
+    const COLUMNS: Self::Array<&'static str> = [Self::NAME, Self::DESCRIPTION, Self::DATE];
 
     const PARAMETERS: Self::Array<index_values::PushParameter<'a, Self>> = [
         index_values::push_parameter!(this.name),
@@ -392,4 +402,31 @@ impl<'a> index_values::IndexValues<'a> for Singular<'a, Index> {
     ];
 
     const TABLE: TableName = TableName::SINGULAR_PARAMETERS;
+}
+
+pub struct ResourcesTableQuery<'a> {
+    group: SimpleQueryRef<'a, Id<Group>>,
+}
+
+impl<'a> ResourcesTableQuery<'a> {
+    const GROUP: &'static str = "group_";
+
+    fn new(groups: &'a [Id<Group>]) -> Self {
+        Self {
+            group: SimpleQueryRef::in_(groups),
+        }
+    }
+}
+
+impl SqlTable for ResourcesTableQuery<'_> {
+    fn table(&self) -> TableName {
+        TableName::RESOURCES
+    }
+}
+
+impl<'a> ToSqlQuery<'a> for ResourcesTableQuery<'a> {
+    fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, _table_index: TableIndex) {
+        let Self { group } = self;
+        push_simple_query(TableName::RESOURCES, Self::GROUP, *group, builder);
+    }
 }
