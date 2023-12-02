@@ -10,8 +10,6 @@ use accounting_core::{
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json, Postgres, QueryBuilder};
 
-mod index;
-mod query;
 mod query_index;
 
 use query_index::{Indexable, SqlIndexQueries};
