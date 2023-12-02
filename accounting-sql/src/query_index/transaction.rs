@@ -1,5 +1,5 @@
 use accounting_core::{
-    backend::{id::Id, query::SimpleQueryRef, user::Group},
+    backend::{id::Id, query::SimpleQueryRef},
     public::{
         account::Account,
         amount::Amount,
@@ -110,10 +110,9 @@ impl Indexable for Transaction {
     type IndexQuery<'a> = Query<'a>;
     type Index<'a> = Index<'a>;
 
-    fn index<'a>(&'a self, group: &'a Id<Group>) -> Self::Index<'a> {
+    fn index(&self) -> Self::Index<'_> {
         Index {
             singular: Singular {
-                group: Some(group),
                 date: Some(&self.date),
                 description: Some(&self.description),
                 ..Default::default()

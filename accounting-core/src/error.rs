@@ -16,11 +16,11 @@ pub enum Error {
     ConflictingEdit,
 
     #[error("Backend error: {0}")]
-    Backend(#[source] Box<dyn StdError + 'static>),
+    Backend(#[source] Box<dyn StdError + Send + Sync + 'static>),
 }
 
 impl Error {
-    pub fn backend<E: StdError + 'static>(error: E) -> Self {
+    pub fn backend<E: StdError + Send + Sync + 'static>(error: E) -> Self {
         Error::Backend(Box::new(error))
     }
 }

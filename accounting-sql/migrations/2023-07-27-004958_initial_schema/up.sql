@@ -2,12 +2,12 @@ CREATE TABLE resources (
   id BIGINT PRIMARY KEY NOT NULL,
   type TEXT NOT NULL,
   version BIGINT NOT NULL,
+  group_ BIGINT NOT NULL REFERENCES resources (id),
   resource JSONB NOT NULL
 );
 
 CREATE TABLE singular_parameters (
   id BIGINT PRIMARY KEY NOT NULL REFERENCES resources (id),
-  group_ BIGINT NOT NULL REFERENCES resources (id),
   name TEXT,
   description TEXT,
   date_ DATE

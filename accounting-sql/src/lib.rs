@@ -2,7 +2,6 @@ use accounting_core::{
     backend::{
         collection::Collection,
         id::Id,
-        query::{Query, Queryable},
         user::{ChangeGroup, Group, WithGroup, WithGroupQuery},
         version::{Version, Versioned},
     },
@@ -15,20 +14,18 @@ mod index;
 mod query;
 mod query_index;
 
-use index::Indexable;
-use query::ToSqlQuery;
+use query_index::{Indexable, SqlIndexQueries};
 
 pub struct SqlCollection {
     connection_pool: sqlx::Pool<Postgres>,
 }
 
 impl SqlCollection {
-    pub async fn query_count<T, Q>(&self, queries: &[Q]) -> sqlx::Result<usize>
+    pub async fn query_count<T>(&self, queries: &[T::Query]) -> sqlx::Result<usize>
     where
-        T: Queryable,
-        Q: Query<T> + ToSqlQuery,
+        T: Indexable,
     {
-        let mut qb = query::query("COUNT(*)", queries, T::TYPE_NAME);
+        let mut qb = query_index::query::<T>("COUNT(*)", queries);
         let count: i64 = qb
             .build_query_scalar()
             .fetch_one(&self.connection_pool)
@@ -36,18 +33,34 @@ impl SqlCollection {
         Ok(count as usize)
     }
 
-    async fn index_object<T: Indexable>(
-        &mut self,
-        id: Id<WithGroup<T>>,
-        object: &WithGroup<T>,
-    ) -> Result<()> {
-        for mut query in T::index(id, object) {
-            query
-                .build()
-                .execute(&self.connection_pool)
-                .await
-                .map_err(Error::backend)?;
-        }
+    async fn insert_object_indexes<T: Indexable>(&mut self, object: &T, id: Id<T>) -> Result<()> {
+        let index = object.index();
+        let mut transaction = self.connection_pool.begin().await.map_err(Error::backend)?;
+        index
+            .insert_index(id, &mut transaction)
+            .await
+            .map_err(Error::backend)?;
+        transaction.commit().await.map_err(Error::backend)?;
+        Ok(())
+    }
+
+    async fn update_object_indexes<T: Indexable>(&mut self, object: &T, id: Id<T>) -> Result<()> {
+        let index = object.index();
+        let mut transaction = self.connection_pool.begin().await.map_err(Error::backend)?;
+        index
+            .update_index(id, &mut transaction)
+            .await
+            .map_err(Error::backend)?;
+        transaction.commit().await.map_err(Error::backend)?;
+        Ok(())
+    }
+
+    async fn remove_object_indexes<T: Indexable>(&mut self, id: Id<T>) -> Result<()> {
+        let mut transaction = self.connection_pool.begin().await.map_err(Error::backend)?;
+        T::Index::remove_index(id, &mut transaction)
+            .await
+            .map_err(Error::backend)?;
+        transaction.commit().await.map_err(Error::backend)?;
         Ok(())
     }
 }
@@ -55,46 +68,36 @@ impl SqlCollection {
 #[async_trait::async_trait]
 impl<T> Collection<T> for SqlCollection
 where
-    T: Queryable
-        + Indexable
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + Send
-        + Sync
-        + Unpin
-        + 'static,
-    T::Query: ToSqlQuery,
+    T: Indexable + Serialize + for<'de> Deserialize<'de> + Send + Sync + Unpin + 'static,
 {
-    async fn create(&mut self, object: WithGroup<T>) -> Result<Id<T>> {
+    async fn create(&mut self, WithGroup { object, group }: WithGroup<T>) -> Result<Id<T>> {
         let id = Id::new_random();
         let version = Version::new_random();
-        let versioned = Versioned {
-            id,
-            version,
-            object,
-        };
-        let mut qb = QueryBuilder::new("INSERT INTO resources(id, type, version, resource) (");
+        let mut qb =
+            QueryBuilder::new("INSERT INTO resources(id, type, version, group_, resource) (");
         let mut values = qb.separated(",");
-        values.push_bind(versioned.id);
+        values.push_bind(id);
         values.push_bind(T::TYPE_NAME);
-        values.push_bind(versioned.version);
-        values.push_bind(Json(&versioned));
+        values.push_bind(version);
+        values.push_bind(group);
+        values.push_bind(Json(&object));
         qb.push(")");
         qb.build()
             .execute(&self.connection_pool)
             .await
             .map_err(Error::backend)?;
-        self.index_object(id, &versioned.object).await?;
-        Ok(id.transmute())
+        self.insert_object_indexes(&object, id).await?;
+        Ok(id)
     }
 
     async fn get(&self, id: Id<T>) -> Result<Option<WithGroup<Versioned<T>>>> {
-        let mut qb = QueryBuilder::new("SELECT resource FROM resources WHERE id = ");
+        let mut qb =
+            QueryBuilder::new("SELECT id, version, group_, resource FROM resources WHERE id = ");
         qb.push_bind(id);
-        qb.build_query_scalar()
+        qb.build_query_as::<ResourceTableEntry<T>>()
             .fetch_optional(&self.connection_pool)
             .await
-            .map(|opt| opt.map(|Json(resource)| resource))
+            .map(|opt| opt.map(Into::into))
             .map_err(Error::backend)
     }
 
@@ -105,19 +108,20 @@ where
             .execute(&self.connection_pool)
             .await
             .map_err(Error::backend)?;
+        self.remove_object_indexes(id).await?;
         Ok(())
     }
 
-    async fn update(&mut self, object: Versioned<T>) -> Result<()> {
+    async fn update(&mut self, Versioned { object, id, version }: Versioned<T>) -> Result<()> {
         let new_version = Version::new_random();
         let mut qb = QueryBuilder::new("UPDATE resources SET (version, resource) = (");
         let mut values = qb.separated(",");
         values.push_bind(new_version);
         values.push_bind(Json(&object));
         qb.push(") WHERE id = ");
-        qb.push_bind(object.id);
+        qb.push_bind(id);
         qb.push(" AND version = ");
-        qb.push_bind(object.version);
+        qb.push_bind(version);
         let res = qb
             .build()
             .execute(&self.connection_pool)
@@ -125,7 +129,7 @@ where
             .map_err(Error::backend)?;
         if res.rows_affected() < 1 {
             let mut qb = QueryBuilder::new("SELECT version FROM resources WHERE id = ");
-            qb.push_bind(object.id);
+            qb.push_bind(id);
             if qb
                 .build()
                 .fetch_optional(&self.connection_pool)
@@ -138,7 +142,7 @@ where
                 return Err(Error::NotFound);
             }
         }
-        // TODO: reindex
+        self.update_object_indexes(&object, id).await?;
         Ok(())
     }
 
@@ -146,10 +150,51 @@ where
     where
         T: ChangeGroup,
     {
-        todo!();
+        let new_version = Version::new_random();
+        let mut qb = QueryBuilder::new("UPDATE resources SET (version, group_) = (");
+        let mut values = qb.separated(",");
+        values.push_bind(new_version);
+        values.push_bind(new_group);
+        qb.push(") WHERE id = ");
+        qb.push_bind(id);
+        qb.build()
+            .execute(&self.connection_pool)
+            .await
+            .map_err(Error::backend)?;
+        Ok(())
     }
 
     async fn query_count(&self, query: &[WithGroupQuery<T>]) -> Result<usize> {
         todo!();
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct ResourceTableEntry<T> {
+    id: Id<T>,
+    #[sqlx(rename = "group_")]
+    group: Id<Group>,
+    version: Version,
+    #[sqlx(json)]
+    resource: T,
+}
+
+impl<T> From<ResourceTableEntry<T>> for WithGroup<Versioned<T>> {
+    fn from(
+        ResourceTableEntry {
+            id,
+            group,
+            version,
+            resource,
+        }: ResourceTableEntry<T>,
+    ) -> Self {
+        WithGroup {
+            group,
+            object: Versioned {
+                id,
+                version,
+                object: resource,
+            },
+        }
     }
 }

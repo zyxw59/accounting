@@ -4,7 +4,6 @@ use accounting_core::{
     backend::{
         id::Id,
         query::{Queryable, SimpleQueryRef},
-        user::Group,
     },
     date::Date,
 };
@@ -190,7 +189,7 @@ pub trait Indexable: Queryable {
     where
         Self: 'a;
 
-    fn index<'a>(&'a self, group: &'a Id<Group>) -> Self::Index<'a>;
+    fn index(&self) -> Self::Index<'_>;
     fn transform_query(query: &Self::Query) -> Self::IndexQuery<'_>;
 }
 
@@ -205,7 +204,7 @@ pub trait ToSqlQuery<'a>: SqlTable {
 /// A representation of a set of indexes for a single object, that can be transformed into SQL
 /// queries to insert, remove, or update the values in the database.
 #[async_trait::async_trait]
-pub trait SqlIndexQueries<'a, T: 'a> {
+pub trait SqlIndexQueries<'a, T: 'a>: Send + Sync {
     /// Insert the indexes into the database
     async fn insert_index(
         &self,
@@ -230,7 +229,6 @@ pub trait SqlIndexQueries<'a, T: 'a> {
 pub fn query<'a, T: Indexable + 'a>(
     select: &'static str,
     queries: &'a [T::Query],
-    type_name: &'static str,
 ) -> QueryBuilder<'a, Postgres> {
     let mut qb = QueryBuilder::new(format!(
         "SELECT {select} FROM resources JOIN {} USING (id)",
@@ -245,7 +243,7 @@ pub fn query<'a, T: Indexable + 'a>(
             ));
         }
     }
-    qb.push(format_args!(" WHERE resources.type = '{type_name}'"));
+    qb.push(format_args!(" WHERE resources.type = '{}'", T::TYPE_NAME));
     for (index, param) in queries.iter().enumerate() {
         T::transform_query(param).push_query(&mut qb, TableIndex(index));
     }
@@ -340,14 +338,12 @@ fn push_simple_query<'a, T>(
 #[derive(derivative::Derivative)]
 #[derivative(Default(bound = ""))]
 pub struct Singular<'a, T: QueryOrIndex> {
-    group: Option<T::Value<'a, Id<Group>>>,
     name: Option<T::Value<'a, String>>,
     description: Option<T::Value<'a, String>>,
     date: Option<T::Value<'a, Date>>,
 }
 
 impl<T: QueryOrIndex> Singular<'_, T> {
-    const GROUP: &str = "group_";
     const NAME: &str = "name";
     const DESCRIPTION: &str = "description";
     const DATE: &str = "date";
@@ -362,14 +358,10 @@ impl<T: QueryOrIndex> SqlTable for Singular<'_, T> {
 impl<'a> ToSqlQuery<'a> for Singular<'a, Query> {
     fn push_query(&self, builder: &mut QueryBuilder<'a, Postgres>, _table_index: TableIndex) {
         let Self {
-            group,
             name,
             description,
             date,
         } = self;
-        if let Some(query) = group {
-            push_simple_query(TableName::SINGULAR_PARAMETERS, Self::GROUP, *query, builder);
-        }
         if let Some(query) = name {
             push_simple_query(TableName::SINGULAR_PARAMETERS, Self::NAME, *query, builder);
         }
@@ -388,13 +380,12 @@ impl<'a> ToSqlQuery<'a> for Singular<'a, Query> {
 }
 
 impl<'a> index_values::IndexValues<'a> for Singular<'a, Index> {
-    type Array<T> = [T; 4];
+    type Array<T> = [T; 3];
 
     const COLUMNS: Self::Array<&'static str> =
-        [Self::GROUP, Self::NAME, Self::DESCRIPTION, Self::DATE];
+        [Self::NAME, Self::DESCRIPTION, Self::DATE];
 
     const PARAMETERS: Self::Array<index_values::PushParameter<'a, Self>> = [
-        index_values::push_parameter!(this.group),
         index_values::push_parameter!(this.name),
         index_values::push_parameter!(this.description),
         index_values::push_parameter!(this.date),

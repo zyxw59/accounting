@@ -107,10 +107,9 @@ impl Indexable for Group {
     type IndexQuery<'a> = Query<'a>;
     type Index<'a> = Index<'a>;
 
-    fn index<'a>(&'a self, group: &'a Id<Group>) -> Self::Index<'a> {
+    fn index(&self) -> Self::Index<'_> {
         Index {
             singular: Singular {
-                group: Some(group),
                 name: Some(&self.name),
                 ..Default::default()
             },
