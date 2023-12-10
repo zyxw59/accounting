@@ -10,10 +10,10 @@ use accounting_core::{
 };
 use sqlx::{Postgres, QueryBuilder, Transaction};
 
-pub mod account;
-pub mod group;
-pub mod transaction;
-pub mod user;
+mod account;
+mod group;
+mod transaction;
+mod user;
 
 mod index_values {
     use accounting_core::backend::id::Id;
@@ -230,7 +230,7 @@ pub trait SqlIndexQueries<'a, T: 'a>: Send + Sync {
     ) -> sqlx::Result<()>;
 }
 
-pub fn query<'a, T: Indexable + 'a>(
+pub(crate) fn query<'a, T: Indexable + 'a>(
     select: &'static str,
     queries: &'a [WithGroupQuery<T>],
 ) -> QueryBuilder<'a, Postgres> {
@@ -406,7 +406,7 @@ impl<'a> index_values::IndexValues<'a> for Singular<'a, Index> {
     const TABLE: TableName = TableName::SINGULAR_PARAMETERS;
 }
 
-pub struct ResourcesTableQuery<'a> {
+struct ResourcesTableQuery<'a> {
     group: SimpleQueryRef<'a, Id<Group>>,
 }
 

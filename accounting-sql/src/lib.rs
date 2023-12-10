@@ -19,7 +19,7 @@ pub struct SqlCollection {
 }
 
 impl SqlCollection {
-    pub async fn query_count<T>(&self, queries: &[WithGroupQuery<T>]) -> sqlx::Result<usize>
+    async fn query_count<T>(&self, queries: &[WithGroupQuery<T>]) -> sqlx::Result<usize>
     where
         T: Indexable,
     {
