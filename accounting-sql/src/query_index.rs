@@ -10,6 +10,7 @@ use accounting_core::{
 };
 use sqlx::{Postgres, QueryBuilder, Transaction};
 
+pub mod account;
 pub mod group;
 pub mod transaction;
 
