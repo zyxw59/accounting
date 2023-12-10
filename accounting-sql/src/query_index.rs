@@ -13,6 +13,7 @@ use sqlx::{Postgres, QueryBuilder, Transaction};
 pub mod account;
 pub mod group;
 pub mod transaction;
+pub mod user;
 
 mod index_values {
     use accounting_core::backend::id::Id;
