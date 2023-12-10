@@ -1,5 +1,6 @@
 [workspace]
 members = [
     "accounting-core",
-    "accounting-mongodb",
+    "accounting-sql",
 ]
+resolver = "2"

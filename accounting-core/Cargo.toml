@@ -6,13 +6,26 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.68"
+async-trait = "0.1.74"
 bson = { version = "2.6.1", features = ["time-0_3"] }
 derivative = "2.2.0"
 log = "0.4.17"
 rand = "0.8.5"
 rust_decimal = { version = "1.29.1", features = ["serde-with-str"] }
 serde = { version = "1.0.159", features = ["derive"] }
-serde_json = "1.0.95"
+serde_repr = "0.1.12"
 thiserror = "1.0.40"
 time = { version = "0.3.20", features = ["serde", "formatting", "parsing"] }
+
+[dependencies.sqlx]
+version = "0.7.1"
+optional = true
+default-features = false
+features = ["time", "rust_decimal", "macros"]
+
+[features]
+sqlx-postgres = ["sqlx", "sqlx/postgres"]
+
+[dev-dependencies]
+pretty_assertions = "1.4.0"
+serde_json = "1.0.95"

@@ -9,12 +9,14 @@ use crate::{
 
 pub mod collection;
 pub mod id;
+pub mod query;
 pub mod user;
 pub mod version;
 
 use collection::Collection;
 use id::Id;
-use user::{AccessLevel, ChangeGroup, Group, User, WithGroup};
+use query::Queryable;
+use user::{AccessLevel, ChangeGroup, Group, User, WithGroup, WithGroupQuery};
 use version::Versioned;
 
 pub struct Backend {
@@ -149,5 +151,13 @@ where
         } else {
             self.get_mut_collection().change_group(id, new_group).await
         }
+    }
+
+    async fn query_count(&self, query: &[WithGroupQuery<T>]) -> Result<usize>
+    where
+        T: Queryable,
+    {
+        // TODO: filter by permissions
+        self.get_collection().query_count(query).await
     }
 }
