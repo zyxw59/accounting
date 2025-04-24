@@ -3,7 +3,6 @@ use time::Date;
 
 use crate::{
     backend::id::Id,
-    map::Map,
     public::{account::Account, amount::Amount},
 };
 
@@ -12,5 +11,13 @@ pub struct Transaction {
     #[serde(with = "crate::serde::date")]
     pub date: Date,
     pub description: String,
-    pub amounts: Map<Id<Account>, Amount>,
+    pub amounts: Vec<TransactionSplit>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TransactionSplit {
+    pub account: Id<Account>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    pub amount: Amount,
 }
