@@ -1,6 +1,8 @@
 //! A typed 64-bit identifier for a resource.
 
 use std::{fmt, marker::PhantomData};
+#[cfg(feature = "sqlx")]
+type SqlxError = Box<dyn std::error::Error + Send + Sync>;
 
 use derivative::Derivative;
 use rand::distributions::{Distribution, Standard};
@@ -39,8 +41,57 @@ impl<T> Id<T> {
         }
     }
 
+    fn new(id: u64) -> Self {
+        Id { _marker: PhantomData, id }
+    }
+
     fn _check_send_sync(self) -> impl Send + Sync {
         self
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<DB, T> sqlx::Type<DB> for Id<T>
+where
+    DB: sqlx::Database,
+    i64: sqlx::Type<DB>,
+{
+    fn type_info() -> DB::TypeInfo {
+        <i64 as sqlx::Type<DB>>::type_info()
+    }
+}
+
+#[cfg(feature = "sqlx-postgres")]
+impl<T> sqlx::postgres::PgHasArrayType for Id<T> {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        <i64 as sqlx::postgres::PgHasArrayType>::array_type_info()
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<'q, DB, T> sqlx::Encode<'q, DB> for Id<T>
+where
+    DB: sqlx::Database,
+    i64: sqlx::Encode<'q, DB>,
+{
+    fn encode_by_ref(
+        &self,
+        buf: &mut DB::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, SqlxError> {
+        <i64 as sqlx::Encode<'q, DB>>::encode_by_ref(&(self.id as i64), buf)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<'r, DB, T> sqlx::Decode<'r, DB> for Id<T>
+where
+    DB: sqlx::Database,
+    i64: sqlx::Decode<'r, DB>,
+{
+    fn decode(
+        value: DB::ValueRef<'r>,
+    ) -> Result<Self, SqlxError> {
+        <i64 as sqlx::Decode<'r, DB>>::decode(value).map(|id| Self::new(id as _))
     }
 }
 

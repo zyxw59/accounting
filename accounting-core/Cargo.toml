@@ -14,5 +14,10 @@ rand = "0.8.5"
 rust_decimal = { version = "1.29.1", features = ["serde-with-str"] }
 serde = { version = "1.0.159", features = ["derive"] }
 serde_json = "1.0.95"
+sqlx = { version = "0.8.5", optional = true, default-features = false, features = ["time", "rust_decimal"] }
 thiserror = "1.0.40"
 time = { version = "0.3.20", features = ["serde", "formatting", "parsing"] }
+
+[features]
+sqlx = ["dep:sqlx"]
+sqlx-postgres = ["sqlx", "sqlx/postgres"]
