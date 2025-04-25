@@ -1,5 +1,8 @@
 use accounting_core::{
-    backend::{id::Id, version::Versioned, Backend},
+    backend::{
+        id::{Id, WithId},
+        Backend,
+    },
     error::Result,
     public::{account::Account, amount::Amount, transaction::Transaction},
 };
@@ -55,18 +58,18 @@ impl Backend for Connection {
         Ok(id)
     }
 
-    async fn get_transactions(&self) -> Result<Vec<Versioned<Transaction>>> {
+    async fn get_transactions(&self) -> Result<Vec<WithId<Transaction>>> {
         todo!();
     }
 
     async fn get_transactions_by_account(
         &self,
         _account: Id<Account>,
-    ) -> Result<Vec<Versioned<Transaction>>> {
+    ) -> Result<Vec<WithId<Transaction>>> {
         todo!();
     }
 
-    async fn get_all_accounts(&self) -> Result<Vec<Versioned<Account>>> {
+    async fn get_all_accounts(&self) -> Result<Vec<WithId<Account>>> {
         todo!();
     }
 
@@ -74,7 +77,7 @@ impl Backend for Connection {
         &self,
         _account: Id<Account>,
         _as_of: Option<Date>,
-    ) -> Result<Versioned<Account>> {
+    ) -> Result<WithId<Account>> {
         todo!();
     }
 }
