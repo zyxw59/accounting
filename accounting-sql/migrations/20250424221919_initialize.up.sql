@@ -1,7 +1,7 @@
 CREATE TABLE transactions (
   id BIGINT PRIMARY KEY NOT NULL,
-  description TEXT,
-  date_ DATE
+  description TEXT NOT NULL,
+  date_ DATE NOT NULL
 );
 
 CREATE TABLE accounts (

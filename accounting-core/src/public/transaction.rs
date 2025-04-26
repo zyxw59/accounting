@@ -15,7 +15,7 @@ pub struct Transaction {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow, sqlx::Type))]
 pub struct TransactionSplit {
     pub account: Id<Account>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
