@@ -42,7 +42,10 @@ impl<T> Id<T> {
     }
 
     fn new(id: u64) -> Self {
-        Id { _marker: PhantomData, id }
+        Id {
+            _marker: PhantomData,
+            id,
+        }
     }
 
     fn _check_send_sync(self) -> impl Send + Sync {
@@ -88,9 +91,7 @@ where
     DB: sqlx::Database,
     i64: sqlx::Decode<'r, DB>,
 {
-    fn decode(
-        value: DB::ValueRef<'r>,
-    ) -> Result<Self, SqlxError> {
+    fn decode(value: DB::ValueRef<'r>) -> Result<Self, SqlxError> {
         <i64 as sqlx::Decode<'r, DB>>::decode(value).map(|id| Self::new(id as _))
     }
 }

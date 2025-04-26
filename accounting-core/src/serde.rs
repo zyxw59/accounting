@@ -5,7 +5,7 @@
 pub mod date {
     use bson::DateTime;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use time::{serde::format_description, Date, OffsetDateTime};
+    use time::{Date, OffsetDateTime, serde::format_description};
 
     format_description!(rfc3339_date, Date, "[year]-[month]-[day]");
 

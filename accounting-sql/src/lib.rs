@@ -1,7 +1,7 @@
 use accounting_core::{
     backend::{
-        id::{Id, WithId},
         Backend,
+        id::{Id, WithId},
     },
     error::Result,
     public::{
