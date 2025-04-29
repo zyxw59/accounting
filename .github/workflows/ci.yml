@@ -9,13 +9,44 @@ env:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost/accounting-dev
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
     - uses: actions/checkout@v3
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: rustup toolchain install
       uses: dtolnay/rust-toolchain@v1
       with:
         toolchain: stable
         components: clippy,rustfmt
+    - name: Install sqlx-cli from crates.io
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: sqlx-cli
+        args: "--no-default-features"
+        features: postgres
+    - name: Setup sqlx database
+      run: sqlx database setup --source accounting-sql/migrations
     - name: Format
       run: cargo fmt --check --all
     - name: Clippy
