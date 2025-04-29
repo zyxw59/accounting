@@ -92,9 +92,39 @@ impl Backend for Connection {
 
     async fn get_transactions_by_account(
         &self,
-        _account: Id<Account>,
+        account: Id<Account>,
     ) -> Result<Vec<WithId<Transaction>>> {
-        todo!();
+        Ok(sqlx::query!(
+            r#"SELECT
+                id as "id: Id<Transaction>", description, date_,
+                CASE
+                    WHEN transaction IS NULL
+                    THEN NULL
+                    ELSE ARRAY_AGG((account, note, amount))
+                END as "splits: Vec<TransactionSplit>"
+            FROM transactions
+            LEFT JOIN splits ON id = transaction
+            WHERE id IN (
+                SELECT transaction FROM splits
+                WHERE account = $1
+            )
+            GROUP BY id, transaction
+            "#,
+            account as Id<_>,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("TODO")
+        .into_iter()
+        .map(|record| WithId {
+            id: record.id,
+            object: Transaction {
+                description: record.description,
+                date: record.date_,
+                amounts: record.splits.unwrap_or_default(),
+            },
+        })
+        .collect())
     }
 
     async fn get_all_accounts(&self) -> Result<Vec<WithId<Account>>> {
