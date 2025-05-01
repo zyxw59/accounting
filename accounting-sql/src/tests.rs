@@ -102,5 +102,19 @@ async fn transactions(pool: sqlx::Pool<sqlx::Postgres>) -> Result<()> {
     }
     let all_txs = connection.get_transactions().await?;
     pretty_assertions::assert_eq!(all_txs, transactions_with_id);
+
+    let grocery_txs = connection.get_transactions_by_account(groceries).await?;
+    pretty_assertions::assert_eq!(
+        grocery_txs,
+        transactions_with_id
+            .into_iter()
+            .filter(|t| t
+                .object
+                .amounts
+                .iter()
+                .any(|split| split.account == groceries))
+            .collect::<Vec<_>>()
+    );
+
     Ok(())
 }

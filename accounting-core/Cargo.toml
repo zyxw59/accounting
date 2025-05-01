@@ -9,6 +9,7 @@ edition = "2024"
 async-trait = "0.1.68"
 bson = { version = "2.6.1", features = ["time-0_3"] }
 derivative = "2.2.0"
+itertools = "0.14.0"
 log = "0.4.17"
 rand = "0.8.5"
 rust_decimal = { version = "1.29.1", features = ["serde-with-str"] }
