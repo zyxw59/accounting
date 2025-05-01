@@ -1,11 +1,11 @@
 use accounting_core::{
     backend::{
-        Backend,
         id::{Id, WithId},
+        Backend,
     },
     error::Result,
     public::{
-        account::Account,
+        account::{Account, AccountMetadata},
         amount::Amount,
         transaction::{Transaction, TransactionSplit},
     },
@@ -125,6 +125,20 @@ impl Backend for Connection {
             },
         })
         .collect())
+    }
+
+    async fn create_account(&mut self, account: AccountMetadata) -> Result<Id<Account>> {
+        let id = Id::new_random();
+        sqlx::query!(
+            "INSERT INTO accounts(id, name, description, balance) VALUES ($1, $2, $3, 0)",
+            id as Id<_>,
+            account.name,
+            account.description,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("TODO");
+        Ok(id)
     }
 
     async fn get_all_accounts(&self) -> Result<Vec<WithId<Account>>> {

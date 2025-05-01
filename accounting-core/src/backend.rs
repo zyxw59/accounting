@@ -3,7 +3,7 @@ use time::Date;
 
 use crate::{
     error::Result,
-    public::{account::Account, transaction::Transaction},
+    public::{account::{Account, AccountMetadata}, transaction::Transaction},
 };
 
 pub mod id;
@@ -27,6 +27,12 @@ pub trait Backend {
         &self,
         account: Id<Account>,
     ) -> impl Future<Output = Result<Vec<WithId<Transaction>>>> + Send;
+
+    /// Create a new account
+    fn create_account(
+        &mut self,
+        account: AccountMetadata,
+    ) -> impl Future<Output = Result<Id<Account>>> + Send;
 
     /// Gets a list of all accounts
     fn get_all_accounts(&self) -> impl Future<Output = Result<Vec<WithId<Account>>>> + Send;

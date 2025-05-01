@@ -6,6 +6,7 @@ CREATE TABLE transactions (
 
 CREATE TABLE accounts (
   id BIGINT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
   description TEXT,
   balance BIGINT NOT NULL
 );
