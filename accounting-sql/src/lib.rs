@@ -77,7 +77,9 @@ impl Backend for Connection {
                 END as "splits: Vec<TransactionSplit>"
             FROM transactions
             LEFT JOIN splits ON id = transaction
-            GROUP BY id, transaction"#,
+            GROUP BY id, transaction
+            ORDER BY date_
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -113,6 +115,7 @@ impl Backend for Connection {
                 WHERE account = $1
             )
             GROUP BY id, transaction
+            ORDER BY date_
             "#,
             account as Id<_>,
         )

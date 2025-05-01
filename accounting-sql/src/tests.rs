@@ -31,6 +31,12 @@ async fn transactions(pool: sqlx::Pool<sqlx::Postgres>) -> Result<()> {
             description: "Groceries expenses".into(),
         })
         .await?;
+    let supplies = connection
+        .create_account(AccountMetadata {
+            name: "Supplies".into(),
+            description: "Supplies expenses".into(),
+        })
+        .await?;
 
     let transactions = [
         Transaction {
@@ -65,6 +71,27 @@ async fn transactions(pool: sqlx::Pool<sqlx::Postgres>) -> Result<()> {
                 },
             ],
         },
+        Transaction {
+            date: time::macros::date!(2025 - 01 - 04),
+            description: "Grocery store".into(),
+            amounts: vec![
+                TransactionSplit {
+                    account: bank,
+                    amount: Amount::new(-30),
+                    note: String::new(),
+                },
+                TransactionSplit {
+                    account: groceries,
+                    amount: Amount::new(20),
+                    note: String::new(),
+                },
+                TransactionSplit {
+                    account: supplies,
+                    amount: Amount::new(10),
+                    note: String::new(),
+                },
+            ],
+        },
     ];
 
     let mut transactions_with_id = Vec::with_capacity(transactions.len());
@@ -74,6 +101,6 @@ async fn transactions(pool: sqlx::Pool<sqlx::Postgres>) -> Result<()> {
         transactions_with_id.push(WithId { id, object });
     }
     let all_txs = connection.get_transactions().await?;
-    assert_eq!(all_txs, transactions_with_id);
+    pretty_assertions::assert_eq!(all_txs, transactions_with_id);
     Ok(())
 }
