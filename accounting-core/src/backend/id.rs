@@ -119,7 +119,7 @@ impl<T> Distribution<Id<T>> for Standard {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct WithId<T> {
     pub id: Id<T>,
     #[serde(flatten)]

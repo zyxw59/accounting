@@ -6,7 +6,7 @@ use crate::{
     public::{account::Account, amount::Amount},
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct Transaction {
     #[serde(with = "crate::serde::date")]
     pub date: Date,
@@ -14,7 +14,7 @@ pub struct Transaction {
     pub amounts: Vec<TransactionSplit>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::FromRow, sqlx::Type))]
 pub struct TransactionSplit {
     pub account: Id<Account>,

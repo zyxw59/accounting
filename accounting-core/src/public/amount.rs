@@ -13,6 +13,10 @@ pub struct Amount(
 );
 
 impl Amount {
+    pub fn new(value: impl Into<Decimal>) -> Self {
+        Self(value.into())
+    }
+
     /// Returns whether the amount is a debit amount
     pub fn is_debit(self) -> bool {
         self.0 > Decimal::ZERO

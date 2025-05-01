@@ -3,7 +3,10 @@ use time::Date;
 
 use crate::{
     error::Result,
-    public::{account::{Account, AccountMetadata}, transaction::Transaction},
+    public::{
+        account::{Account, AccountMetadata},
+        transaction::Transaction,
+    },
 };
 
 pub mod id;

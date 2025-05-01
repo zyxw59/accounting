@@ -1,7 +1,7 @@
 use accounting_core::{
     backend::{
-        id::{Id, WithId},
         Backend,
+        id::{Id, WithId},
     },
     error::Result,
     public::{
@@ -12,6 +12,9 @@ use accounting_core::{
 };
 use itertools::Itertools;
 use time::Date;
+
+#[cfg(test)]
+mod tests;
 
 pub struct Connection {
     pool: sqlx::Pool<sqlx::Postgres>,
@@ -51,7 +54,8 @@ impl Backend for Connection {
                 SELECT accounts.balance + SUM(x.change)
                 FROM unnest($1::bigint[], $2::bigint[]) as x(account, change)
                 WHERE x.account = accounts.id
-            )",
+            )
+            WHERE accounts.id = ANY($1)",
             &accounts as &[Id<_>],
             &amounts as &[Amount],
         )
