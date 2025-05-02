@@ -22,6 +22,9 @@ pub struct Connection {
 
 impl Backend for Connection {
     async fn create_transaction(&mut self, transaction: Transaction) -> Result<Id<Transaction>> {
+        if !transaction.validate() {
+            todo!();
+        }
         let mut tx = self.pool.begin().await.expect("TODO");
         let id = Id::new_random();
         sqlx::query!(

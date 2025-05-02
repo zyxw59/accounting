@@ -15,6 +15,17 @@ pub struct Transaction {
     pub amounts: Vec<TransactionSplit>,
 }
 
+impl Transaction {
+    /// Returns whether the transaction's amounts sum to zero
+    pub fn validate(&self) -> bool {
+        self.amounts
+            .iter()
+            .map(|split| split.amount)
+            .sum::<Amount>()
+            .is_zero()
+    }
+}
+
 impl PartialEq for Transaction {
     fn eq(&self, other: &Self) -> bool {
         self.date == other.date

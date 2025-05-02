@@ -84,3 +84,9 @@ impl ops::Neg for Amount {
         Self(-self.0)
     }
 }
+
+impl std::iter::Sum for Amount {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self(Decimal::ZERO), |a, b| a + b)
+    }
+}
