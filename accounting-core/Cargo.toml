@@ -1,7 +1,7 @@
 [package]
 name = "accounting-core"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,10 +9,16 @@ edition = "2021"
 async-trait = "0.1.68"
 bson = { version = "2.6.1", features = ["time-0_3"] }
 derivative = "2.2.0"
+itertools = "0.14.0"
 log = "0.4.17"
 rand = "0.8.5"
 rust_decimal = { version = "1.29.1", features = ["serde-with-str"] }
 serde = { version = "1.0.159", features = ["derive"] }
 serde_json = "1.0.95"
+sqlx = { version = "0.8.5", optional = true, default-features = false, features = ["time", "rust_decimal"] }
 thiserror = "1.0.40"
 time = { version = "0.3.20", features = ["serde", "formatting", "parsing"] }
+
+[features]
+sqlx = ["dep:sqlx"]
+sqlx-postgres = ["sqlx", "sqlx/postgres"]

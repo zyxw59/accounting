@@ -1,0 +1,17 @@
+[package]
+name = "accounting-sql"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+accounting-core = { path = "../accounting-core", features = ["sqlx-postgres"] }
+itertools = "0.14.0"
+sqlx = { version = "0.8.5", default-features = false, features = [
+  "macros", "postgres", "runtime-tokio", "tls-rustls",
+] }
+time = "0.3.41"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+sqlx = { version = "0.8.5", default-features = false, features = ["migrate"] }
+time = { version = "0.3.20", features = ["macros"] }
