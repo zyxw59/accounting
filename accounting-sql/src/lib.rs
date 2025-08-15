@@ -152,14 +152,56 @@ impl Backend for Connection {
     }
 
     async fn get_all_accounts(&self) -> Result<Vec<WithId<Account>>> {
-        todo!();
+        Ok(sqlx::query!(
+            r#"SELECT
+                id as "id: Id<Account>", name, description, balance as "balance: Amount"
+                FROM accounts"#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("TODO")
+        .into_iter()
+        .map(|record| WithId {
+            id: record.id,
+            object: Account {
+                metadata: AccountMetadata {
+                    name: record.name,
+                    description: record.description.unwrap_or_default(),
+                },
+                current_balance: record.balance,
+            },
+        })
+        .collect())
     }
 
     async fn get_account(
         &self,
-        _account: Id<Account>,
-        _as_of: Option<Date>,
+        account: Id<Account>,
+        as_of: Option<Date>,
     ) -> Result<WithId<Account>> {
-        todo!();
+        if let Some(as_of) = as_of {
+            todo!();
+        } else {
+            let record = sqlx::query!(
+                r#"SELECT
+                id as "id: Id<Account>", name, description, balance as "balance: Amount"
+                FROM accounts
+                WHERE id = $1"#,
+                account as Id<_>,
+            )
+            .fetch_one(&self.pool)
+            .await
+            .expect("TODO");
+            Ok(WithId {
+                id: record.id,
+                object: Account {
+                    metadata: AccountMetadata {
+                        name: record.name,
+                        description: record.description.unwrap_or_default(),
+                    },
+                    current_balance: record.balance,
+                },
+            })
+        }
     }
 }
